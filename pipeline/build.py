@@ -143,6 +143,16 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, CASH_GROUP, "ME"),
     }
     weekly_assets = (flow.resample("W-FRI").sum() / 1e9).iloc[-26:]
+
+    # Market close-up: weekly net flow and closing price for every market, three years.
+    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-156:]
+    wk_close = close.resample("W-FRI").last().reindex(wk_flow.index)
+    wk_end = flow.index.to_series().resample("W-FRI").max().reindex(wk_flow.index)
+    markets_weekly = {
+        "end": [d.strftime("%Y-%m-%d") for d in wk_end],
+        "net": {t: [an._num(v, 3) for v in wk_flow[t]] for t in tickers},
+        "close": {t: [an._num(v, 4) for v in wk_close[t]] for t in tickers},
+    }
     weekly_classes = pd.DataFrame(history["weekly"]["net"])
     streaks = {
         "classes": an.flow_streaks(weekly_classes),
@@ -199,6 +209,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "correlations": correlations,
         "cash": cash_out,
         "history": history,
+        "markets_weekly": markets_weekly,
         "streaks": streaks,
         "selloffs": {
             "threshold": SELLOFF_THRESHOLD,
