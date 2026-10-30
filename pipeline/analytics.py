@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 CASH_NODE = "Cash & sidelines"
+BASELINE_DAYS = 252
 
 
 def money_flow(df):
@@ -18,6 +19,19 @@ def money_flow(df):
     clv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / span
     clv = clv.where(span > 0, 0.0).fillna(0.0).clip(-1, 1)
     return df["close"] * df["volume"].fillna(0.0) * clv
+
+
+def abnormal_flow(flow, window=BASELINE_DAYS, min_periods=60):
+    """Daily flow minus each market's own trailing average daily flow.
+
+    Money flow has a built-in drift: in a rising market closes cluster near the day's
+    high, so the raw estimate reads as buying almost every day and adds up to huge,
+    meaningless totals over years. Measuring against the trailing one-year average
+    (excluding the current day) keeps only unusual buying or selling. Days without a
+    full baseline yet are left as NaN.
+    """
+    baseline = flow.rolling(window, min_periods=min_periods).mean().shift(1)
+    return flow - baseline
 
 
 def align_to_calendar(prices, calendar):
@@ -138,6 +152,7 @@ def periodic_class_flows(flow, asset_group, groups, cash_group, freq, periods=No
     Returns a compact dict: parallel lists of start/end dates, net per class, total moved,
     and links as [source index, target index, USD billions] triples.
     """
+    flow = flow.dropna(how="all")
     days = flow.index.to_series()
     sums = flow.resample(freq).sum() / 1e9
     first = days.resample(freq).min()

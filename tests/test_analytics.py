@@ -42,6 +42,16 @@ def test_align_rolls_weekend_flow_into_next_trading_day():
     assert panel["flow"]["BTC"].iloc[1] == pytest.approx(1_000 * (102 + 103 + 104))
 
 
+def test_abnormal_flow_removes_steady_drift():
+    days = pd.bdate_range("2024-01-01", periods=120)
+    steady = pd.Series(5e9, index=days)
+    steady.iloc[-1] = 8e9  # one unusually heavy day
+    out = an.abnormal_flow(pd.DataFrame({"SPY": steady}), window=60, min_periods=60)["SPY"]
+    assert out.iloc[:60].isna().all()  # no baseline yet
+    assert out.iloc[60:-1].abs().max() == pytest.approx(0.0)
+    assert out.iloc[-1] == pytest.approx(3e9)
+
+
 def test_allocate_flows_conserves_and_routes_excess_to_cash():
     result = an.allocate_flows({"SPY": -30.0, "QQQ": -10.0, "GLD": 15.0, "TLT": 5.0, "BIL": None})
     links = result["links"]

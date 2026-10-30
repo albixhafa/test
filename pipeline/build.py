@@ -74,6 +74,8 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         raise RuntimeError(f"benchmark {BENCHMARK} is missing; refusing to build")
     calendar = prices[BENCHMARK].index
     panel = an.align_to_calendar(prices, calendar)
+    # Every flow figure below is measured against each market's own trailing normal.
+    panel["flow"] = an.abnormal_flow(panel["flow"])
     tickers = [a.ticker for a in ASSETS if a.ticker in prices]
     close = panel["close"][tickers]
     vix_s = vix.reindex(calendar).ffill() if vix is not None else None
@@ -128,15 +130,17 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     asset_group = {a.ticker: a.group for a in ASSETS}
     episodes = an.find_selloffs(close[BENCHMARK], SELLOFF_THRESHOLD)
     episodes = an.selloff_stats({k: v[tickers] for k, v in panel.items()}, episodes, REBOUND_DAYS, cash_series)
+    baseline_start = panel["flow"][BENCHMARK].first_valid_index()
     for ep in episodes:
-        ep["wheel"] = an.class_flows({t: a["net_flow_bn"] for t, a in ep["assets"].items()},
-                                     asset_group, GROUPS, CASH_GROUP)
+        # Selloffs before each market has a year-long baseline can't be replayed.
+        ep["wheel"] = None if pd.Timestamp(ep["peak"]) < baseline_start else an.class_flows(
+            {t: a["net_flow_bn"] for t, a in ep["assets"].items()}, asset_group, GROUPS, CASH_GROUP)
 
     # Flow history between classes: weekly for three years, monthly since the start.
     flow = panel["flow"][tickers]
     history = {
         "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=156),
-        "monthly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "ME"),
+        "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, CASH_GROUP, "ME"),
     }
     weekly_assets = (flow.resample("W-FRI").sum() / 1e9).iloc[-26:]
     weekly_classes = pd.DataFrame(history["weekly"]["net"])
