@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css">
   <!-- Self-hosted so the charts never depend on a third-party CDN being reachable. -->
   <script src="vendor/echarts-5.5.1.min.js"></script>
+  <script src="vendor/d3-7.9.0.min.js"></script>
 </head>
 <body>
   <header class="top">
@@ -35,13 +36,42 @@
     <section class="section">
       <div class="section-head">
         <div>
-          <h2>Where the money went</h2>
-          <p class="muted">Estimated net buying and selling across markets over the selected window.</p>
+          <h2>The liquidity wheel</h2>
+          <p class="muted">Money moving between stocks, bonds, cash, gold, crypto and the dollar.</p>
         </div>
         <div class="segmented" role="radiogroup" aria-label="Lookback window" id="window-picker">
           <button type="button" role="radio" data-window="5">1 week</button>
           <button type="button" role="radio" data-window="20">1 month</button>
           <button type="button" role="radio" data-window="60">3 months</button>
+        </div>
+      </div>
+      <article class="card" data-card="wheel">
+        <header class="card-head">
+          <div>
+            <h3 id="wheel-headline"></h3>
+            <p class="muted small" id="wheel-sub"></p>
+          </div>
+          <button type="button" class="ghost small table-toggle">Table</button>
+        </header>
+        <div class="wheel-layout">
+          <div class="chart wheel" id="chart-wheel"></div>
+          <div class="wheel-side">
+            <h4 class="small muted">Net in and out, by class</h4>
+            <ul class="wheel-classes" id="wheel-classes"></ul>
+            <p class="muted small">Arc length is how much moved through a class; ribbons point from where money left to where
+              it went. Hover, tap or tab to a class to trace its flows. Cash is the balancing account: selling that no other
+              market absorbed counts as moving to cash.</p>
+          </div>
+        </div>
+        <div class="table-wrap" hidden></div>
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Market by market</h2>
+          <p class="muted">The same window, broken down by individual market.</p>
         </div>
       </div>
       <div class="grid two">
@@ -137,7 +167,7 @@
           <header class="card-head">
             <div>
               <h3>One year of performance</h3>
-              <p class="muted small">One market per group, indexed to 100 a year ago.</p>
+              <p class="muted small">One market per class, indexed to 100 a year ago.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
@@ -167,6 +197,11 @@
             holds what and at what price. The useful question is where sellers park their proceeds and which markets
             see persistent buying while stocks fall. That shows up as relative strength, heavy turnover and rising cash
             balances, which is what this page tracks.</p>
+          <h3>The liquidity wheel</h3>
+          <p>Each market's estimated flow is added up within its class, so rotation inside a class (from tech into
+            utilities, say) cancels out and only money crossing between classes remains. Cash balances the wheel: if
+            more was sold than bought across the tracked markets, the difference is shown flowing into cash, and if
+            more was bought, it is shown coming out of cash.</p>
           <h3>Estimated flows</h3>
           <p>Real fund flows (ETF creations and redemptions, money fund subscriptions) mostly sit behind paid data.
             Flows here are estimated with <em>Chaikin money flow</em>: each day's dollar volume is signed by where the
@@ -197,6 +232,7 @@
     Not investment advice. Data can be delayed, revised or wrong.
   </footer>
 
+  <div class="tip" id="tip" role="tooltip" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>

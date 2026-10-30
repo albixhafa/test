@@ -12,32 +12,35 @@ class Asset:
     usd_volume: bool = False  # Yahoo reports volume in USD rather than units (crypto pairs)
 
 
-# Groups are listed in display order; the dashboard assigns colours by this order.
+# Asset classes, in display order; the dashboard assigns colours by this order and
+# the liquidity wheel draws one arc per class.
 GROUPS = [
-    "Equities",
-    "Defensive equities",
-    "Treasuries & cash",
-    "Credit",
-    "Real assets",
-    "US dollar",
+    "Stocks",
+    "Bonds",
+    "Cash",
+    "Gold & commodities",
     "Crypto",
+    "US dollar",
 ]
+# The wheel treats cash as the balancing account: whatever is sold and not bought
+# elsewhere among the tracked markets is counted as moving to cash, and vice versa.
+CASH_GROUP = "Cash"
 
 ASSETS = [
-    Asset("SPY", "S&P 500", "Equities", "spy.us"),
-    Asset("QQQ", "Nasdaq 100", "Equities", "qqq.us"),
-    Asset("IWM", "Small caps", "Equities", "iwm.us"),
-    Asset("EFA", "Intl developed", "Equities", "efa.us"),
-    Asset("EEM", "Emerging markets", "Equities", "eem.us"),
-    Asset("XLP", "Consumer staples", "Defensive equities", "xlp.us"),
-    Asset("XLU", "Utilities", "Defensive equities", "xlu.us"),
-    Asset("BIL", "T-bills (cash)", "Treasuries & cash", "bil.us"),
-    Asset("IEF", "7-10y Treasuries", "Treasuries & cash", "ief.us"),
-    Asset("TLT", "20y+ Treasuries", "Treasuries & cash", "tlt.us"),
-    Asset("LQD", "IG corporate", "Credit", "lqd.us"),
-    Asset("HYG", "High yield", "Credit", "hyg.us"),
-    Asset("GLD", "Gold", "Real assets", "gld.us"),
-    Asset("DBC", "Commodities", "Real assets", "dbc.us"),
+    Asset("SPY", "S&P 500", "Stocks", "spy.us"),
+    Asset("QQQ", "Nasdaq 100", "Stocks", "qqq.us"),
+    Asset("IWM", "Small caps", "Stocks", "iwm.us"),
+    Asset("EFA", "Intl developed", "Stocks", "efa.us"),
+    Asset("EEM", "Emerging markets", "Stocks", "eem.us"),
+    Asset("XLP", "Consumer staples", "Stocks", "xlp.us"),
+    Asset("XLU", "Utilities", "Stocks", "xlu.us"),
+    Asset("BIL", "T-bills (cash)", "Cash", "bil.us"),
+    Asset("IEF", "7-10y Treasuries", "Bonds", "ief.us"),
+    Asset("TLT", "20y+ Treasuries", "Bonds", "tlt.us"),
+    Asset("LQD", "IG corporate", "Bonds", "lqd.us"),
+    Asset("HYG", "High yield", "Bonds", "hyg.us"),
+    Asset("GLD", "Gold", "Gold & commodities", "gld.us"),
+    Asset("DBC", "Commodities", "Gold & commodities", "dbc.us"),
     Asset("UUP", "US dollar", "US dollar", "uup.us"),
     Asset("BTC-USD", "Bitcoin", "Crypto", usd_volume=True),
     Asset("ETH-USD", "Ether", "Crypto", usd_volume=True),

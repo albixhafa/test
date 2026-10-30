@@ -13,8 +13,8 @@ from pathlib import Path
 import pandas as pd
 
 from . import analytics as an
-from .config import (ASSETS, BENCHMARK, FLOW_WINDOWS, FRED_SERIES, GROUPS, HISTORY_START,
-                     REBOUND_DAYS, SELLOFF_THRESHOLD, VIX)
+from .config import (ASSETS, BENCHMARK, CASH_GROUP, FLOW_WINDOWS, FRED_SERIES, GROUPS,
+                     HISTORY_START, REBOUND_DAYS, SELLOFF_THRESHOLD, VIX)
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "docs" / "data" / "dashboard.json"
 
@@ -95,6 +95,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         wf = an.window_flows({k: v[tickers] for k, v in panel.items()}, w)
         net = {t: r["net_flow_bn"] for t, r in wf["assets"].items()}
         wf["sankey"] = an.allocate_flows(net)
+        wf["wheel"] = an.class_flows(net, {a.ticker: a.group for a in ASSETS}, GROUPS, CASH_GROUP)
         windows[str(w)] = wf
 
     # Risk regime.

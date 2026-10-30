@@ -2,8 +2,8 @@
 
 const state = { data: null, window: "20", charts: {}, assets: {}, groupIndex: {} };
 const CASH_NODE = "Cash & sidelines";
-// One market per group for the performance chart.
-const REPRESENTATIVES = ["SPY", "XLU", "TLT", "HYG", "GLD", "UUP", "BTC-USD"];
+// One market per class for the performance chart.
+const REPRESENTATIVES = ["SPY", "TLT", "BIL", "GLD", "BTC-USD", "UUP"];
 
 // ---------- helpers ----------
 
@@ -189,6 +189,258 @@ function renderKpis() {
     el.append(delta);
     root.appendChild(el);
   });
+}
+
+// ---------- liquidity wheel ----------
+
+const WINDOW_WORDS = { 5: "week", 20: "month", 60: "three months" };
+
+function showTip(title, rows, x, y) {
+  const tip = $("#tip");
+  tip.replaceChildren();
+  const head = document.createElement("div");
+  head.className = "tip-title";
+  head.textContent = title;
+  tip.appendChild(head);
+  rows.forEach(([label, value]) => {
+    const r = document.createElement("div");
+    r.className = "tip-row";
+    const l = document.createElement("span");
+    l.textContent = label;
+    const v = document.createElement("strong");
+    v.textContent = value;
+    r.append(l, v);
+    tip.appendChild(r);
+  });
+  tip.hidden = false;
+  const box = tip.getBoundingClientRect();
+  const left = Math.min(x + 14, window.innerWidth - box.width - 8);
+  const top = y + 14 + box.height > window.innerHeight ? y - box.height - 14 : y + 14;
+  tip.style.left = `${Math.max(8, left)}px`;
+  tip.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideTip() {
+  $("#tip").hidden = true;
+}
+
+function wheelHeadline(wheel, windowKey) {
+  const span = WINDOW_WORDS[windowKey] || `${windowKey} days`;
+  const entries = Object.entries(wheel.net).sort((a, b) => a[1] - b[1]);
+  const [source, out] = entries[0];
+  if (!wheel.links.length || out >= 0) return `Little money changed hands between classes over the past ${span}`;
+  const dests = wheel.links.filter((l) => l.source === source).sort((a, b) => b.value - a.value).slice(0, 2);
+  const where = dests.map((l) => `${l.target} (${fmtUsdBn(l.value)})`).join(" and ");
+  return `${fmtUsdBn(-out)} left ${source} over the past ${span}, mostly into ${where}`;
+}
+
+function renderWheel(t) {
+  const w = state.data.windows[state.window];
+  const wheel = w.wheel;
+  const groups = state.data.groups;
+  const idx = Object.fromEntries(groups.map((g, i) => [g, i]));
+  const color = (g) => t.groups[idx[g] % t.groups.length];
+  const matrix = groups.map(() => groups.map(() => 0));
+  wheel.links.forEach((l) => { matrix[idx[l.source]][idx[l.target]] += l.value; });
+  const outOf = (i) => d3.sum(matrix[i]);
+  const into = (i) => d3.sum(matrix, (row) => row[i]);
+
+  $("#wheel-headline").textContent = wheelHeadline(wheel, state.window);
+  $("#wheel-sub").textContent = `${w.start} to ${w.end}. Estimated from price and volume, not reported fund flows.`;
+
+  // Side list: net per class, biggest inflow first.
+  const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
+  const list = $("#wheel-classes");
+  list.replaceChildren();
+  Object.entries(wheel.net).sort((a, b) => b[1] - a[1]).forEach(([g, v]) => {
+    const li = document.createElement("li");
+    const key = document.createElement("span");
+    key.className = "key";
+    key.style.background = color(g);
+    const name = document.createElement("span");
+    name.textContent = g;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    const width = (Math.abs(v) / maxAbs) * 50;
+    fill.style.width = `${width}%`;
+    fill.style.left = v >= 0 ? "50%" : `${50 - width}%`;
+    fill.style.background = v >= 0 ? t.pos : t.neg;
+    bar.appendChild(fill);
+    const num = document.createElement("span");
+    num.className = "num";
+    num.textContent = fmtUsdBn(v, true);
+    li.append(key, name, bar, num);
+    list.appendChild(li);
+  });
+
+  table(cardTable("wheel"), ["From", "To", "Amount"],
+    wheel.links.slice().sort((a, b) => b.value - a.value).map((l) => [l.source, l.target, fmtUsdBn(l.value)]));
+
+  const el = document.getElementById("chart-wheel");
+  el.replaceChildren();
+  if (!wheel.links.length) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = "No money moved between classes in this window.";
+    el.appendChild(p);
+    return;
+  }
+
+  // On narrow screens the ring drops its labels; the class list beside it carries them.
+  const width = el.clientWidth || 560;
+  const narrow = width < 560;
+  const outer = narrow ? Math.min(width / 2 - 8, 220) : Math.min(230, (width - 2 * 170) / 2);
+  const inner = outer - (narrow ? 12 : 16);
+  const height = outer * 2 + (narrow ? 16 : 40);
+
+  const chords = d3.chordDirected()
+    .padAngle(6 / inner)
+    .sortSubgroups(d3.descending)
+    .sortChords(d3.descending)(matrix);
+  const arc = d3.arc().innerRadius(inner).outerRadius(outer).cornerRadius(3);
+  const ribbon = d3.ribbonArrow().radius(inner - 3).padAngle(1 / inner).headRadius(Math.min(16, inner * 0.08));
+
+  const svg = d3.select(el).append("svg")
+    .attr("viewBox", [-width / 2, -height / 2, width, height])
+    .attr("width", width)
+    .attr("height", height)
+    .attr("role", "img")
+    .attr("aria-label", `${wheelHeadline(wheel, state.window)}. ${fmtUsdBn(wheel.total_bn)} moved between classes in total.`);
+
+  const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
+    .attr("class", "ribbon")
+    .attr("d", ribbon)
+    .attr("fill", (d) => color(groups[d.source.index]))
+    .attr("fill-opacity", 0.62)
+    .attr("stroke", t.surface)
+    .attr("stroke-width", 1)
+    .on("pointermove pointerdown", (ev, d) => {
+      highlightRibbon(d);
+      showTip(`${groups[d.source.index]} → ${groups[d.target.index]}`, [["Estimated flow", fmtUsdBn(d.source.value)]], ev.clientX, ev.clientY);
+    })
+    .on("pointerleave", leave);
+
+  const arcs = svg.append("g").selectAll("g").data(chords.groups.filter((g) => g.value > 0)).join("g")
+    .attr("class", "arc")
+    .attr("tabindex", 0)
+    .attr("aria-label", (d) => `${groups[d.index]}: ${fmtUsdBn(outOf(d.index))} out, ${fmtUsdBn(into(d.index))} in, net ${fmtUsdBn(wheel.net[groups[d.index]], true)}`);
+  arcs.append("path")
+    .attr("d", arc)
+    .attr("fill", (d) => color(groups[d.index]))
+    .attr("stroke", t.surface)
+    .attr("stroke-width", 2);
+
+  const classTip = (d, x, y) => {
+    const g = groups[d.index];
+    const rows = [["Net", fmtUsdBn(wheel.net[g], true)], ["Out", fmtUsdBn(outOf(d.index))], ["In", fmtUsdBn(into(d.index))]];
+    groups.forEach((other, j) => {
+      if (matrix[d.index][j] > 0) rows.push([`→ ${other}`, fmtUsdBn(matrix[d.index][j])]);
+      if (matrix[j][d.index] > 0) rows.push([`← ${other}`, fmtUsdBn(matrix[j][d.index])]);
+    });
+    showTip(g, rows, x, y);
+  };
+  arcs
+    .on("pointermove pointerdown", (ev, d) => { highlightClass(d.index); classTip(d, ev.clientX, ev.clientY); })
+    .on("pointerleave", leave)
+    .on("focus", function (ev, d) {
+      highlightClass(d.index);
+      const box = this.getBoundingClientRect();
+      classTip(d, box.left + box.width / 2, box.top + box.height / 2);
+    })
+    .on("blur", () => { reset(); hideTip(); });
+
+  function highlightClass(i) {
+    ribbons.attr("fill-opacity", (c) => (c.source.index === i || c.target.index === i ? 0.85 : 0.06));
+    arcs.attr("opacity", (g) => (g.index === i || matrix[i][g.index] || matrix[g.index][i] ? 1 : 0.35));
+  }
+  function highlightRibbon(d) {
+    ribbons.attr("fill-opacity", (c) => (c === d ? 0.9 : 0.06));
+    arcs.attr("opacity", (g) => (g.index === d.source.index || g.index === d.target.index ? 1 : 0.35));
+  }
+  function reset() {
+    ribbons.attr("fill-opacity", 0.62);
+    arcs.attr("opacity", 1);
+  }
+  // A tap ends with pointerleave straight away; keep touch details up until the next tap elsewhere.
+  function leave(ev) {
+    if (ev.pointerType === "touch") return;
+    reset();
+    hideTip();
+  }
+  state.wheelReset = () => { reset(); hideTip(); };
+
+  // Class labels outside the ring: name, then net in/out. Labels sit left or right of
+  // the ring and are pushed apart vertically so small neighbouring arcs stay readable.
+  const lineHeight = 36;
+  const labelData = narrow ? [] : chords.groups.filter((g) => g.value > 0).map((d) => {
+    const a = (d.startAngle + d.endAngle) / 2;
+    const side = Math.sin(a) >= 0 ? 1 : -1;
+    // Columns either side of the ring, so labels never sit on top of it.
+    return { d, a, side, x: side * (outer + 28), y: -Math.cos(a) * (outer + 8) - lineHeight / 2 + 6 };
+  });
+  [1, -1].forEach((side) => {
+    const items = labelData.filter((l) => l.side === side).sort((p, q) => p.y - q.y);
+    const top = -height / 2 + 12;
+    for (let i = 0; i < items.length; i++) items[i].y = Math.max(items[i].y, i ? items[i - 1].y + lineHeight : top);
+    const bottom = height / 2 - lineHeight + 8;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const limit = i === items.length - 1 ? bottom : items[i + 1].y - lineHeight;
+      items[i].y = Math.min(items[i].y, limit);
+    }
+  });
+
+  const leaders = svg.append("g").attr("pointer-events", "none");
+  leaders.selectAll("path").data(labelData).join("path")
+    .attr("d", (l) => {
+      const r0 = outer + 3;
+      const x0 = Math.sin(l.a) * r0;
+      const y0 = -Math.cos(l.a) * r0;
+      const yl = l.y + lineHeight / 2 - 10;
+      return `M${x0},${y0}L${l.x - l.side * 4},${yl}`;
+    })
+    .attr("stroke", t.axis)
+    .attr("fill", "none");
+
+  const labels = svg.append("g").attr("pointer-events", "none").selectAll("text")
+    .data(labelData).join("text")
+    .attr("transform", (l) => `translate(${l.x},${l.y})`)
+    .attr("text-anchor", (l) => (l.side > 0 ? "start" : "end"));
+  labels.append("tspan")
+    .attr("x", 0)
+    .attr("fill", t.text)
+    .attr("font-size", narrow ? 12 : 13)
+    .attr("font-weight", 600)
+    .text((l) => groups[l.d.index]);
+  labels.append("tspan")
+    .attr("x", 0)
+    .attr("dy", "1.3em")
+    .attr("fill", t.text2)
+    .attr("font-size", narrow ? 11 : 12)
+    .text((l) => {
+      const v = wheel.net[groups[l.d.index]];
+      return `${fmtUsdBn(v, true)} ${v >= 0 ? "in" : "out"}`;
+    });
+
+  // Hub: the total that moved, haloed so it reads on top of the ribbons.
+  const hub = svg.append("g")
+    .attr("pointer-events", "none")
+    .attr("text-anchor", "middle")
+    .attr("stroke", t.surface)
+    .attr("stroke-width", narrow ? 4 : 6)
+    .attr("stroke-linejoin", "round")
+    .attr("paint-order", "stroke");
+  hub.append("text")
+    .attr("y", -4)
+    .attr("fill", t.text)
+    .attr("font-size", narrow ? 24 : 32)
+    .attr("font-weight", 600)
+    .text(fmtUsdBn(wheel.total_bn));
+  hub.append("text")
+    .attr("y", narrow ? 16 : 20)
+    .attr("fill", t.text)
+    .attr("font-size", narrow ? 11 : 13)
+    .text(`moved in the past ${WINDOW_WORDS[state.window] || state.window + " days"}`);
 }
 
 // ---------- rotation map ----------
@@ -673,6 +925,7 @@ function renderWindow() {
   document.querySelectorAll("#window-picker button").forEach((b) => {
     b.setAttribute("aria-checked", String(b.dataset.window === state.window));
   });
+  safely("liquidity wheel", renderWheel, t);
   safely("rotation map", renderSankey, t);
   safely("buying vs selling", renderIntensity, t);
 }
@@ -723,6 +976,9 @@ function wireControls() {
     applyTheme(mode);
     renderAll();
   });
+  document.addEventListener("pointerdown", (ev) => {
+    if (state.wheelReset && !ev.target.closest("#chart-wheel")) state.wheelReset();
+  });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (mode === "auto") renderAll();
   });
@@ -732,12 +988,18 @@ function wireControls() {
     clearTimeout(pending);
     pending = setTimeout(() => {
       Object.values(state.charts).forEach((c) => c.resize());
-      if (state.data) safely("rotation map", renderSankey, theme());
+      if (state.data) {
+        safely("liquidity wheel", renderWheel, theme());
+        safely("rotation map", renderSankey, theme());
+      }
     }, 120);
   });
 }
 
 async function main() {
+  if (typeof d3 === "undefined") {
+    showError("The wheel library (vendor/d3-7.9.0.min.js) did not load, so the liquidity wheel can't be drawn. Try reloading the page.");
+  }
   if (typeof echarts === "undefined") {
     showError("The chart library (vendor/echarts-5.5.1.min.js) did not load, so charts can't be drawn. Try reloading the page.");
   }

@@ -63,6 +63,26 @@ def test_allocate_flows_draws_from_cash_when_inflows_dominate():
     assert from_cash == pytest.approx(15.0)
 
 
+def test_class_flows_nets_within_class_and_balances_through_cash():
+    groups = ["Stocks", "Bonds", "Cash", "Crypto"]
+    asset_group = {"SPY": "Stocks", "XLU": "Stocks", "TLT": "Bonds", "BIL": "Cash", "BTC": "Crypto"}
+    net = {"SPY": -50.0, "XLU": 10.0, "TLT": 15.0, "BIL": 3.0, "BTC": 5.0}
+    wheel = an.class_flows(net, asset_group, groups, "Cash")
+    assert wheel["net"] == {"Stocks": -40.0, "Bonds": 15.0, "Cash": 20.0, "Crypto": 5.0}
+    assert wheel["total_bn"] == pytest.approx(40.0)
+    into = {g: sum(l["value"] for l in wheel["links"] if l["target"] == g) for g in groups}
+    assert into["Cash"] == pytest.approx(20.0)
+    assert all(l["source"] == "Stocks" for l in wheel["links"])
+
+
+def test_class_flows_draws_from_cash_when_markets_net_buy():
+    wheel = an.class_flows({"SPY": 30.0, "TLT": -10.0}, {"SPY": "Stocks", "TLT": "Bonds"},
+                           ["Stocks", "Bonds", "Cash"], "Cash")
+    assert wheel["net"]["Cash"] == pytest.approx(-20.0)
+    from_cash = sum(l["value"] for l in wheel["links"] if l["source"] == "Cash")
+    assert from_cash == pytest.approx(20.0)
+
+
 def test_find_selloffs_zigzag():
     prices = [100, 105, 110, 100, 95, 99, 104, 103, 112, 120, 108, 104]
     s = pd.Series(prices, index=pd.bdate_range("2024-01-01", periods=len(prices)))
