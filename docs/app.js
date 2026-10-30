@@ -416,7 +416,6 @@ const INFO = {
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
   flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only.",
-  sidelines: "The sidelines balance the wheel: money that came into the tracked funds from outside (bank deposits, other funds) is shown leaving the sidelines, and money that left them altogether is shown going to the sidelines.",
   intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
 
@@ -501,7 +500,7 @@ function renderNow() {
     .filter((r) => r.c && (r.c.pct >= 85 || r.c.pct <= 15))
     .sort((a, z) => Math.abs(z.c.pct - 50) - Math.abs(a.c.pct - 50));
   if (crowded.length) {
-    items.push(["Crowded trades: ", `speculators are ${crowded.slice(0, 3).map((r) => `${r.c.pct >= 85 ? "near their longest" : "near their shortest"} in ${r.p.name.replace(" futures", "").replace(/^Long Treasury bond$/, "long Treasury bonds")} (${ordinal(r.c.pct)} percentile)`).join("; ")}. Crowded trades can unwind fast.`]);
+    items.push(["Positioning extremes: ", `speculators are ${crowded.slice(0, 3).map((r) => `${extremeWord(r.c.pct, r.c.net)} in ${r.p.name.replace(" futures", "").replace(/^Long Treasury bond$/, "long Treasury bonds")} (${ordinal(r.c.pct)} percentile of three years)`).join("; ")}. Positions at an extreme can unwind fast.`]);
   }
   const rate = (k) => {
     const pts = d.rates && d.rates[k] && d.rates[k].points;
@@ -1248,6 +1247,8 @@ function barCategoryName(ticker) {
 }
 
 function renderIntensity(t) {
+  const sub = $("#intensity-sub");
+  if (!sub.querySelector("button")) sub.appendChild(infoButton("Flow as a share of each fund", "intensity"));
   const w = aggregate();
   const rows = Object.entries(w.assets)
     .filter(([, v]) => v.intensity != null)
@@ -2136,10 +2137,18 @@ function ordinal(n) {
   return `${r}${s[(v - 20) % 10] || s[v] || s[0]}`;
 }
 
+// Where an extreme sits: "longest" only makes sense for a net long position. Hedge funds
+// are structurally short Treasury and bitcoin futures (the basis trade), so a top reading
+// there means "least short".
+function extremeWord(pct, net) {
+  if (pct >= 85) return net >= 0 ? "near their longest" : "near their least short";
+  return net <= 0 ? "near their shortest" : "near their least long";
+}
+
 // Plain reading of a percentile: crowded long, crowded short, or neither.
-function crowdLabel(pct) {
-  if (pct >= 85) return "Crowded long";
-  if (pct <= 15) return "Crowded short";
+function crowdLabel(pct, net) {
+  if (pct >= 85) return net >= 0 ? "Crowded long" : "Least short in 3 years";
+  if (pct <= 15) return net <= 0 ? "Crowded short" : "Least long in 3 years";
   if (pct >= 65) return "Leaning long";
   if (pct <= 35) return "Leaning short";
   return "Middle of the range";
@@ -2190,7 +2199,7 @@ function renderPositioning(t) {
         return {
           value: v,
           // Long bars to the left carry their label inside, clear of the market names.
-          label: v < -25
+          label: v < -35
             ? { show: true, position: "insideLeft", color: "#ffffff", fontSize: 11, formatter: () => ordinal(r.c.pct) }
             : { show: true, position: v < 0 ? "left" : "right", color: t.text2, fontSize: 11, formatter: () => ordinal(r.c.pct) },
           itemStyle: { color: v >= 0 ? t.pos : t.neg, opacity: extreme ? 1 : 0.45, borderRadius: v >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] },
@@ -2207,7 +2216,7 @@ function renderPositioning(t) {
   c.off("click");
   c.on("click", (q) => { state.position = rows[q.dataIndex].p.key; renderPositionHistory(theme()); });
   table(cardTable("crowding"), ["Futures market", "Who", "Net contracts", "Week change", "Percentile (3y)", "Reading"],
-    rows.slice().reverse().map((r) => [r.p.name, r.p.who, fmtContracts(r.c.net), fmtContracts(r.c.change), ordinal(r.c.pct), crowdLabel(r.c.pct)]));
+    rows.slice().reverse().map((r) => [r.p.name, r.p.who, fmtContracts(r.c.net), fmtContracts(r.c.change), ordinal(r.c.pct), crowdLabel(r.c.pct, r.c.net)]));
   renderPositionHistory(t);
 }
 
