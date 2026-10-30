@@ -11,31 +11,25 @@ funds, the Fed's reverse repo facility and the Treasury's cash account.
 
 ## What's on the page
 
-| Panel | Question it answers |
-|---|---|
-| Right now | The page in a few plain sentences: selloff or not, mood, where money went, crowded trades, rates and credit, cash on the sidelines, what to watch |
-| Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? (each with an ⓘ explanation) |
-| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the sidelines (money entering or leaving the tracked funds), with the total in the middle; can replay any past week, month or selloff |
-| Market close-up | Price and flow for any one market over the selected range, plus its record in past selloffs |
-| Liquidity history | Net flows per class by day, week or month, with net new money as a line, as bars or running totals |
-| Outlook | Selloffs in perspective, which markets held up and bounced back in past selloffs, 8-week flow momentum, price/flow divergences, dry powder |
-| Flows vs returns | Each fund's return against its net flow as a share of the fund, sized by fund: chasing strength, buying the dip, taking profits or capitulation, with how unusual the flow is versus the last three years |
-| Flow as a share of each fund | Net flow divided by fund size, so a $5B fund and an $800B fund compare fairly (this is where sector rotation shows) |
-| Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
-| Every selloff, every market | Peak-to-trough return of every market in every selloff, with cash-bucket changes in the table view |
-| Positioning | Where hedge funds and other speculators stand in S&P 500, Nasdaq, 10-year and long Treasury, dollar, bitcoin, gold and crude oil futures, as a percentile of three years, and their net position over time |
-| Dry powder | Stablecoin supply, all money market funds (with estimated net flows after interest, also shown under the wheel for comparison with its sidelines), retail money funds, reverse repo, TGA and Fed net liquidity, with selloffs shaded |
-| Rates and credit | 3-month T-bill yield, 10-year yield, the 2s10s curve, the 10-year real yield, the high-yield spread and the Chicago Fed's financial conditions index |
-| Risk appetite | A composite z-score of equities, small caps vs large, high-yield vs Treasuries, bitcoin, the dollar and VIX |
-| Correlation to stocks | Is bitcoin, gold, Treasuries, the dollar or high yield still a hedge? |
+Four sections, each one card with tabs, so the page stays short:
 
-Every chart has a **Table** toggle with the underlying numbers.
+| Section | What it shows |
+|---|---|
+| **Now** | The answer in one sentence ("Money is leaving X and Y and going into A and B"), today's mood, S&P 500 drawdown and VIX, then **In**, **Out**, **Overall** (net new money and money market funds) and **Worth watching** (record-sized flows, crowded futures, nervous credit markets) for the selected range |
+| **Where money is flowing** | Tabs: **Wheel** (money between stocks, bonds, cash, gold & commodities, crypto and the sidelines; can replay any past week, month or selloff), **Funds** (money in and out of each fund, in dollars or as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, **history** by day, week or month, as flows or running totals |
+| **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to replay it in the wheel) |
+| **Backdrop** | Tabs, each a compact table with sparklines and a chart of the selected row: **Cash** (stablecoins, money market funds and their estimated net flows, retail money funds, reverse repo, TGA, Fed net liquidity), **Rates** (T-bill, 10-year, 2s10s curve, real yield, high-yield spread, financial conditions), **Positioning** (speculators' futures positions in 11 markets as a percentile of three years), **Risk** (risk appetite score and its ingredients, correlations with stocks) |
+
+Tapping any fund opens its **close-up**: price and flows over the range, its last 8 weeks and its record in past selloffs.
+The guide at the bottom (folded by default) explains every number.
+
+Every chart has a **Table** toggle with the underlying numbers and a CSV download.
 
 A **date range** bar under the menu (1W, 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, All, or custom dates) drives
 every chart and table. The page aggregates the range itself from the daily rows (last three years)
 or monthly rows (since 2017) that the pipeline publishes in `series`.
 
-An **Inflation-adjusted** checkbox next to it restates dollar amounts in today's dollars and
+An **Inflation-adjusted** option in the ⋯ menu next to it restates dollar amounts in today's dollars and
 returns as real returns, using monthly CPI (`CPIAUCSL` from FRED).
 
 ## How flows are measured
@@ -104,8 +98,9 @@ your notification settings or the repository's **Watch** menu.
 
 ## Sharing a view
 
-The address bar keeps the selected window, replayed period, market close-up and history
-view (for example `#range=3M&r=ep:12&m=GLD`, or `#from=2020-02-01&to=2020-04-30`), and the **Share** button copies it.
+The address bar keeps the selected range, open tabs, replayed period, open close-up and history
+view (for example `#range=3M&f=funds&b=positioning&m=GLD`, or `#from=2020-02-01&to=2020-04-30`), and the
+**Share** button copies it.
 
 ## Layout
 
