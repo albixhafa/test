@@ -19,7 +19,7 @@ funds, the Fed's reverse repo facility and the Treasury's cash account.
 | Market close-up | Price and flow for any one market over the selected range, plus its record in past selloffs |
 | Liquidity history | Net flows per class by day, week or month, with net new money as a line, as bars or running totals |
 | Outlook | Selloffs in perspective, which markets held up and bounced back in past selloffs, 8-week flow momentum, price/flow divergences, dry powder |
-| Rotation map (Sankey) | Over the selected range, which funds lost money and where did it go? |
+| Flows vs returns | Each fund's return against its net flow as a share of the fund, sized by fund: chasing strength, buying the dip, taking profits or capitulation, with how unusual the flow is versus the last three years |
 | Flow as a share of each fund | Net flow divided by fund size, so a $5B fund and an $800B fund compare fairly (this is where sector rotation shows) |
 | Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
 | Every selloff, every market | Peak-to-trough return of every market in every selloff, with cash-bucket changes in the table view |
@@ -55,8 +55,8 @@ share of the fund's size.
 The liquidity wheel adds flows up within each class and balances them through the
 **Sidelines**: money that came into the tracked funds from outside (bank deposits, other
 funds) is shown leaving the sidelines, money that left them altogether is shown going to the
-sidelines. The rotation map splits each net outflow across net inflows in proportion to size.
-Read both as a picture of rotation, not a ledger of who bought from whom.
+sidelines. Between classes, each net outflow is split across net inflows in proportion to
+size; read it as a picture of rotation, not a ledger of who bought from whom.
 
 ## Data sources (all free, no API keys)
 

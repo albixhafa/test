@@ -303,6 +303,9 @@ select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-w
 .tip .tip-text { color: var(--text-secondary); line-height: 1.45; }
 
 .table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
+.table-wrap .csv { margin: 0 0 8px; }
+.freshness { margin: 0 0 12px; }
+.freshness .late { color: var(--neg); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
 th:first-child, td:first-child { text-align: left; }

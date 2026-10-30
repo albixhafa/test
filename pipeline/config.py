@@ -93,6 +93,9 @@ POSITIONING = [
     {"key": "ustbond", "name": "Long Treasury bond futures", "report": "tff", "code": "020601"},
     {"key": "dollar", "name": "US dollar index futures", "report": "tff", "code": "098662"},
     {"key": "bitcoin", "name": "Bitcoin futures", "report": "tff", "code": "133741"},
+    {"key": "vix", "name": "VIX futures", "report": "tff", "code": "1170E1"},
+    {"key": "yen", "name": "Japanese yen futures", "report": "tff", "code": "097741"},
+    {"key": "euro", "name": "Euro futures", "report": "tff", "code": "099741"},
     {"key": "gold", "name": "Gold futures", "report": "disagg", "code": "088691"},
     {"key": "crude", "name": "Crude oil futures", "report": "disagg", "code": "067651"},
 ]

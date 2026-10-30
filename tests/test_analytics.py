@@ -256,10 +256,12 @@ def test_demo_build_produces_complete_dashboard():
     assert data["regime"]["label"] in {"Risk-on", "Risk-off", "Neutral"}
     for key in ("stablecoins", "rrp", "net_liquidity", "retail_mmf"):
         assert data["cash"][key]
-    assert len(data["positioning"]) == 8 and set(data["rates"]) >= {"DTB3", "DGS10", "NFCI"}
+    assert len(data["positioning"]) == 11 and set(data["rates"]) >= {"DTB3", "DGS10", "NFCI"}
     assert data["mmf_flows"] and data["cash"]["mmf_total"] and data["kpis"]["mmf_total_bn"]
     flows = {a["ticker"] for a in data["assets"] if a["flows"]}
     assert {"SPY", "GLD", "BIL", "STABLES"} <= flows and "QQQ" not in flows
+    assert "STABLES" not in {r["ticker"] for r in data["selloffs"]["playbook"]}
+    assert {f["name"] for f in data["meta"]["freshness"]} >= {"Prices (Yahoo Finance)", "Fund flows (State Street)"}
     # Every class nets to zero once the sidelines are counted.
     for w in data["windows"].values():
         assert sum(w["wheel"]["net"].values()) == pytest.approx(0, abs=1e-3)
