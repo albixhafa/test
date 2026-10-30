@@ -403,7 +403,10 @@ state.replay = null;
 function windowView() {
   const w = state.data.windows[state.window];
   const words = WINDOW_WORDS[state.window] || `${state.window} days`;
-  return { start: w.start, end: w.end, wheel: w.wheel, span: `over the past ${words}`, hub: `moved in the past ${words}` };
+  return {
+    start: w.start, end: w.end, wheel: w.wheel, span: `over the past ${words}`, hub: `moved in the past ${words}`,
+    marketNets: Object.fromEntries(Object.entries(w.assets).map(([t, a]) => [t, a.net_flow_bn])),
+  };
 }
 
 function historyView(kind, i) {
@@ -415,6 +418,9 @@ function historyView(kind, i) {
     total_bn: h.total[i],
   };
   const weekly = kind === "weekly";
+  const mw = state.data.markets_weekly;
+  const j = weekly && mw ? mw.end.indexOf(h.end[i]) : -1;
+  const marketNets = j >= 0 ? Object.fromEntries(Object.entries(mw.net).map(([t, v]) => [t, v[j]])) : null;
   const name = weekly ? `the week of ${fmtDate(h.start[i])}` : parseDay(h.end[i]).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
   return {
     start: h.start[i], end: h.end[i], wheel,
@@ -422,6 +428,7 @@ function historyView(kind, i) {
     hub: weekly ? "moved that week" : "moved that month",
     label: weekly ? `Week of ${fmtDate(h.start[i])}` : name,
     key: `${kind}:${i}`,
+    marketNets,
   };
 }
 
@@ -433,6 +440,7 @@ function episodeView(i) {
     hub: "moved during the selloff",
     label: `${fmtMonth(e.peak)} selloff: S&P 500 ${fmtPct(e.drawdown, 0)}${e.ongoing ? " (still going)" : ""}`,
     key: `ep:${i}`,
+    marketNets: Object.fromEntries(Object.entries(e.assets).map(([t, a]) => [t, a.net_flow_bn])),
   };
 }
 
@@ -443,6 +451,7 @@ function currentView() {
 function replay(view, scroll = true) {
   state.replay = view;
   syncReplayControls();
+  writeHash();
   safely("liquidity wheel", renderWheel, theme());
   if (scroll) document.querySelector('[data-card="wheel"]').scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -450,6 +459,7 @@ function replay(view, scroll = true) {
 function exitReplay() {
   state.replay = null;
   syncReplayControls();
+  writeHash();
   safely("liquidity wheel", renderWheel, theme());
 }
 
@@ -684,6 +694,13 @@ function renderWheel(t) {
       if (matrix[d.index][j] > 0) rows.push([`→ ${other}`, fmtUsdBn(matrix[d.index][j])]);
       if (matrix[j][d.index] > 0) rows.push([`← ${other}`, fmtUsdBn(matrix[j][d.index])]);
     });
+    // Which markets inside the class drove it (cash itself is the balancing account).
+    if (view.marketNets && g !== "Cash") {
+      const movers = state.data.assets.filter((a) => a.group === g && view.marketNets[a.ticker] != null)
+        .map((a) => [a.ticker, view.marketNets[a.ticker]])
+        .sort((p, q) => Math.abs(q[1]) - Math.abs(p[1])).slice(0, 4);
+      if (movers.length > 1) movers.forEach(([tk, v], k) => rows.push([`${k ? "" : "Driven by: "}${shortName(tk)}`, fmtUsdBn(v, true)]));
+    }
     showTip(g, rows, x, y);
   };
   arcs
@@ -860,6 +877,8 @@ function renderSankey(t) {
       }],
     }, true);
   }
+  c.off("click");
+  c.on("click", (p) => { if (p.dataType === "node" && p.name !== CASH_NODE) openCloseup(p.name); });
   table(cardTable("sankey"), ["From", "To", "Allocated flow"],
     sk.links.slice().sort((a, b) => b.value - a.value)
       .map((l) => [assetName(l.source), assetName(l.target), fmtUsdBn(l.value)]));
@@ -950,6 +969,8 @@ function renderIntensity(t) {
       })),
     }],
   }, true);
+  c.off("click");
+  c.on("click", (p) => openCloseup(rows[p.dataIndex][0]));
   table(cardTable("intensity"), ["Market", "Net pressure", "Est. net flow", "Return", "Volume vs normal"],
     rows.slice().reverse().map(([k, v]) => [
       assetName(k), fmtPct(v.intensity), fmtUsdBn(v.net_flow_bn, true), fmtPct(v.ret), `${fmtNum(v.volume_ratio, 2)}×`,
@@ -1037,6 +1058,115 @@ function renderHistory(t) {
     h.end.map((d, i) => [fmtRange(h.start[i], d), ...groups.map((g) => fmtUsdBn(h.net[g][i], true)), fmtUsdBn(h.total[i])]).reverse());
 }
 
+// ---------- market close-up ----------
+
+state.market = "SPY";
+
+function buildCloseupSelect() {
+  const select = $("#closeup-select");
+  select.replaceChildren();
+  state.data.groups.forEach((g) => {
+    const og = document.createElement("optgroup");
+    og.label = g;
+    state.data.assets.filter((a) => a.group === g).forEach((a) => {
+      const o = document.createElement("option");
+      o.value = a.ticker;
+      o.textContent = a.name;
+      og.appendChild(o);
+    });
+    if (og.children.length) select.appendChild(og);
+  });
+}
+
+function openCloseup(ticker, scroll = true) {
+  if (!state.assets[ticker]) return;
+  state.market = ticker;
+  safely("market close-up", renderCloseup, theme());
+  writeHash();
+  if (scroll) $("#closeup").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCloseup(t) {
+  const d = state.data;
+  const mw = d.markets_weekly;
+  const tk = state.market;
+  const name = assetName(tk);
+  $("#closeup-select").value = tk;
+  $("#closeup-title").textContent = `Market close-up: ${name}`;
+
+  // Stats row.
+  const m = d.windows["20"].assets[tk] || {};
+  const st = (d.streaks.assets || {})[tk];
+  const pb = d.selloffs.playbook.find((r) => r.ticker === tk);
+  const stats = [
+    ["Past month", fmtPct(m.ret), m.intensity != null ? `Net ${m.intensity >= 0 ? "buying" : "selling"} ${fmtPct(Math.abs(m.intensity), 0, false)} of normal turnover` : ""],
+    st ? ["Last 8 weeks", fmtUsdBn(st.total_bn, true), `Inflows in ${st.inflow_weeks} of ${st.weeks} weeks`] : null,
+    pb ? ["In past selloffs", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
+    pb && pb.median_rebound != null ? ["After the bottom", fmtPct(pb.median_rebound), `Median over the next ${d.selloffs.rebound_days} trading days`] : null,
+  ].filter(Boolean);
+  const ul = $("#closeup-stats");
+  ul.replaceChildren();
+  stats.forEach(([k, v, dd]) => {
+    const li = document.createElement("li");
+    [["k", k], ["v", v], ["d", dd]].forEach(([cls, txt]) => {
+      const sp = document.createElement("span");
+      sp.className = cls;
+      sp.textContent = txt;
+      li.appendChild(sp);
+    });
+    ul.appendChild(li);
+  });
+
+  if (!mw) return;
+  const closes = mw.close[tk];
+  const firstIdx = closes.findIndex((v) => v != null);
+  const base = closes[firstIdx];
+  const price = mw.end.map((e, i) => [e, closes[i] == null ? null : Math.round((closes[i] / base) * 1000) / 10]);
+  const flows = mw.end.map((e, i) => [e, mw.net[tk][i]]);
+  const narrow = narrowScreen();
+  const c = chart("chart-closeup");
+  c.setOption({
+    axisPointer: { link: [{ xAxisIndex: "all" }], lineStyle: { color: t.axis } },
+    grid: [
+      { left: 8, right: 16, top: 30, height: "44%", containLabel: true },
+      { left: 8, right: 16, top: "62%", bottom: 24, containLabel: true },
+    ],
+    tooltip: {
+      ...tooltipBase(t),
+      trigger: "axis",
+      formatter: (ps) => {
+        const i = ps[0].dataIndex;
+        return `<div style="margin-bottom:4px">Week ending ${esc(fmtDate(mw.end[i]))}</div>` +
+          row("Price (indexed)", price[i][1] == null ? "–" : price[i][1].toFixed(1), t.groups[state.groupIndex[state.assets[tk].group]]) +
+          row("Net flow that week", fmtUsdBn(flows[i][1], true));
+      },
+    },
+    xAxis: [
+      { type: "time", gridIndex: 0, ...axisStyle(t), axisLabel: { show: false }, splitLine: { show: false } },
+      { type: "time", gridIndex: 1, ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
+    ],
+    yAxis: [
+      { type: "value", gridIndex: 0, scale: true, name: "Price, indexed to 100", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
+      { type: "value", gridIndex: 1, name: "Weekly net flow", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
+    ],
+    series: [
+      {
+        type: "line", xAxisIndex: 0, yAxisIndex: 0, data: price, showSymbol: false, connectNulls: true,
+        lineStyle: { width: 2, color: t.groups[state.groupIndex[state.assets[tk].group]] },
+        itemStyle: { color: t.groups[state.groupIndex[state.assets[tk].group]] },
+        markArea: selloffBands(t),
+      },
+      {
+        type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 8,
+        data: flows.map(([e, v]) => ({ value: [e, v], itemStyle: { color: v >= 0 ? t.pos : t.neg } })),
+        markArea: selloffBands(t),
+      },
+    ],
+  }, true);
+  table(cardTable("closeup"), ["Week ending", "Price (indexed)", "Net flow"],
+    mw.end.map((e, i) => [fmtDate(e), price[i][1] == null ? "–" : price[i][1].toFixed(1), fmtUsdBn(flows[i][1], true)]).reverse());
+}
+
 // ---------- selloffs ----------
 
 function renderPlaybook(t) {
@@ -1082,6 +1212,8 @@ function renderPlaybook(t) {
       })),
     }],
   }, true);
+  c.off("click");
+  c.on("click", (p) => openCloseup(rows[p.dataIndex].ticker));
   table(cardTable("playbook"), ["Market", "Median return", "Rose in", `Next ${s.rebound_days}d`, "Volume vs normal"],
     s.playbook.map((r) => [
       assetName(r.ticker), fmtPct(r.median_ret), `${Math.round(r.hit_rate * r.episodes)}/${r.episodes}`,
@@ -1529,6 +1661,7 @@ function renderAll() {
   safely("headline", renderKpis);
   renderWindow();
   safely("liquidity history", renderHistory, t);
+  safely("market close-up", renderCloseup, t);
   safely("selloff playbook", renderPlaybook, t);
   safely("selloff heatmap", renderHeatmap, t);
   safely("outlook", renderOutlook);
@@ -1546,6 +1679,59 @@ function renderWindow() {
   safely("liquidity wheel", renderWheel, t);
   safely("rotation map", renderSankey, t);
   safely("buying vs selling", renderIntensity, t);
+}
+
+// Shareable links: the view lives in the URL hash (#w=20&r=ep:12&m=GLD&hk=monthly&hm=cumulative).
+function writeHash() {
+  if (!state.data) return;
+  const params = new URLSearchParams();
+  params.set("w", state.window);
+  if (state.replay) params.set("r", state.replay.key);
+  if (state.market !== "SPY") params.set("m", state.market);
+  if (state.history.kind !== "weekly") params.set("hk", state.history.kind);
+  if (state.history.mode !== "flows") params.set("hm", state.history.mode);
+  history.replaceState(null, "", `#${params}`);
+}
+
+function readHash() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (!params.has("w") && !params.has("r") && !params.has("m")) return;
+  const d = state.data;
+  if (d.windows[params.get("w")]) state.window = params.get("w");
+  if (params.get("hk") && d.history[params.get("hk")]) state.history.kind = params.get("hk");
+  if (["flows", "cumulative"].includes(params.get("hm"))) state.history.mode = params.get("hm");
+  if (params.get("m") && state.assets[params.get("m")]) state.market = params.get("m");
+  try {
+    const v = viewFromKey(params.get("r"));
+    if (v && v.wheel) state.replay = v;
+  } catch (e) {
+    state.replay = null;
+  }
+}
+
+function toast(message) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.setAttribute("role", "status");
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+async function share() {
+  writeHash();
+  const url = location.href;
+  try {
+    if (navigator.share && narrowScreen()) {
+      await navigator.share({ title: "Liquidity Flow Monitor", url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    toast("Link to this view copied");
+  } catch (e) {
+    if (e && e.name === "AbortError") return;
+    window.prompt("Copy this link:", url);
+  }
 }
 
 function storage(op, key, value) {
@@ -1569,6 +1755,7 @@ function wireControls() {
       state.replay = null;
       syncReplayControls();
       storage("set", "lfm-window", state.window);
+      writeHash();
       renderWindow();
     });
   });
@@ -1612,12 +1799,16 @@ function wireControls() {
     else exitReplay();
   });
   $("#replay-exit").addEventListener("click", exitReplay);
+  $("#closeup-select").addEventListener("change", (ev) => openCloseup(ev.target.value, false));
+  $("#share").addEventListener("click", share);
   document.querySelectorAll("#history-kind button").forEach((b) => b.addEventListener("click", () => {
     state.history.kind = b.dataset.kind;
+    writeHash();
     safely("liquidity history", renderHistory, theme());
   }));
   document.querySelectorAll("#history-mode button").forEach((b) => b.addEventListener("click", () => {
     state.history.mode = b.dataset.mode;
+    writeHash();
     safely("liquidity history", renderHistory, theme());
   }));
 
@@ -1685,9 +1876,11 @@ async function main() {
   data.groups.forEach((g, i) => { state.groupIndex[g] = i; });
 
   buildReplaySelect();
-  syncReplayControls();
+  buildCloseupSelect();
   const saved = storage("get", "lfm-window");
   if (saved && data.windows[saved]) state.window = saved;
+  readHash();
+  syncReplayControls();
 
   $("#demo-banner").hidden = !data.meta.demo;
   $("#asof").textContent = `Data through ${fmtDate(data.meta.as_of)}`;

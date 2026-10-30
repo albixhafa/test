@@ -14,6 +14,7 @@ Treasury's cash account.
 | Right now | The page in five plain sentences: selloff or not, mood, where money went, cash on the sidelines, what to watch |
 | Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? (each with an ⓘ explanation) |
 | Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the dollar, with the total in the middle; can replay any past week, month or selloff |
+| Market close-up | Price and week-by-week flow for any one market over three years, plus its record in past selloffs |
 | Liquidity history | Net flows per class week by week (3 years) or month by month (since 2017), as bars or running totals |
 | Outlook | Selloffs in perspective, which markets held up and bounced back in past selloffs, 8-week flow momentum, price/flow divergences, dry powder |
 | Rotation map (Sankey) | Over the last week, month or quarter, which markets saw net selling and where did that pressure go? |
@@ -69,6 +70,19 @@ After that it runs every weekday after the US close: it rebuilds `dashboard.json
 sources, commits it, and redeploys the site. If more than a third of the markets fail to
 download, the build stops and the previous data stays in place; smaller gaps are listed in a
 warning banner on the page.
+
+## Alerts
+
+On the daily refresh, `pipeline/alerts.py` compares the new data with the previous day's and
+opens a GitHub issue when something changes: the market mood flips, a selloff starts or ends,
+a week of flows is among the heaviest 5% of the past three years, or a risk signal turns
+extreme. GitHub emails repository owners about new issues by default; adjust that under
+your notification settings or the repository's **Watch** menu.
+
+## Sharing a view
+
+The address bar keeps the selected window, replayed period, market close-up and history
+view (for example `#w=60&r=ep:12&m=GLD`), and the **Share** button copies it.
 
 ## Layout
 

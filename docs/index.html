@@ -20,6 +20,7 @@
       <div class="top-meta">
         <span id="asof" class="muted"></span>
         <span id="updated" class="muted"></span>
+        <button id="share" class="ghost" type="button">Share</button>
         <button id="theme-toggle" class="ghost" type="button" aria-label="Toggle colour theme">Theme: auto</button>
       </div>
     </div>
@@ -156,6 +157,22 @@
           <div class="table-wrap" hidden></div>
         </article>
       </div>
+      <article class="card closeup" data-card="closeup" id="closeup">
+        <header class="card-head">
+          <div>
+            <h3 id="closeup-title">Market close-up</h3>
+            <p class="muted small">Price and week-by-week flow for one market over three years. Click any market name or bar on this page to open it here.</p>
+          </div>
+          <div class="card-actions">
+            <label class="visually-hidden" for="closeup-select">Choose a market</label>
+            <select id="closeup-select" class="ghost small"></select>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </div>
+        </header>
+        <ul class="closeup-stats" id="closeup-stats"></ul>
+        <div class="chart" id="chart-closeup"></div>
+        <div class="table-wrap" hidden></div>
+      </article>
     </section>
 
     <section id="selloffs" class="section">
