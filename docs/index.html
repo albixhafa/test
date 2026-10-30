@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liquidity Flow Monitor</title>
+  <meta name="description" content="Where money goes when markets sell off: cross-asset rotation across stocks, bonds, gold, the dollar and crypto.">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <div>
+        <h1>Liquidity Flow Monitor</h1>
+        <p class="sub">Where money goes when markets sell off: stocks, bonds, cash, gold, the dollar and crypto.</p>
+      </div>
+      <div class="top-meta">
+        <span id="asof" class="muted"></span>
+        <button id="theme-toggle" class="ghost" type="button" aria-label="Toggle colour theme">Theme: auto</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="demo-banner" class="banner" hidden>
+      <strong>Demo data.</strong> These numbers are synthetic so the layout can be explored. Run
+      <code>python -m pipeline.build</code> or the <em>Refresh data</em> GitHub Action to load real market data.
+    </div>
+    <div id="warnings" class="banner warn" hidden></div>
+
+    <section class="kpis" id="kpis" aria-label="Headline indicators"></section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Where the money went</h2>
+          <p class="muted">Estimated net buying and selling across markets over the selected window.</p>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label="Lookback window" id="window-picker">
+          <button type="button" role="radio" data-window="5">1 week</button>
+          <button type="button" role="radio" data-window="20">1 month</button>
+          <button type="button" role="radio" data-window="60">3 months</button>
+        </div>
+      </div>
+      <div class="grid two">
+        <article class="card" data-card="sankey">
+          <header class="card-head">
+            <div>
+              <h3>Rotation map</h3>
+              <p class="muted small" id="sankey-sub"></p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart tall" id="chart-sankey"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+        <article class="card" data-card="intensity">
+          <header class="card-head">
+            <div>
+              <h3>Buying vs selling pressure</h3>
+              <p class="muted small">Net flow as a share of normal turnover; return over the window in the table.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart tall" id="chart-intensity"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>When stocks sell off, where does money hide?</h2>
+          <p class="muted" id="selloff-sub"></p>
+        </div>
+      </div>
+      <div class="grid two">
+        <article class="card" data-card="playbook">
+          <header class="card-head">
+            <div>
+              <h3>The selloff playbook</h3>
+              <p class="muted small">Median return from S&amp;P 500 peak to trough, across completed selloffs.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart tall" id="chart-playbook"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+        <article class="card" data-card="heatmap">
+          <header class="card-head">
+            <div>
+              <h3>Every selloff, every market</h3>
+              <p class="muted small">Return from peak to trough. Newest at top.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart" id="chart-heatmap"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Dry powder: where the cash sits</h2>
+          <p class="muted">Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&amp;P 500 selloffs.</p>
+        </div>
+      </div>
+      <div class="grid multiples" id="cash-grid"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Risk appetite and relationships</h2>
+          <p class="muted">Is the market reaching for risk or running from it, and which assets still move with stocks?</p>
+        </div>
+      </div>
+      <div class="grid two">
+        <article class="card" data-card="regime">
+          <header class="card-head">
+            <div>
+              <h3>Risk appetite score</h3>
+              <p class="muted small">Average z-score of risk-seeking signals. Above +0.5 is risk-on, below −0.5 risk-off.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart" id="chart-regime"></div>
+          <div class="table-wrap" hidden></div>
+          <ul class="components" id="regime-components"></ul>
+        </article>
+        <article class="card" data-card="performance">
+          <header class="card-head">
+            <div>
+              <h3>One year of performance</h3>
+              <p class="muted small">One market per group, indexed to 100 a year ago.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart" id="chart-performance"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+        <article class="card span-2" data-card="correlation">
+          <header class="card-head">
+            <div>
+              <h3>Who still moves with stocks?</h3>
+              <p class="muted small">Rolling 60-day correlation of daily returns with the S&amp;P 500. Near −1 is a hedge, near +1 sells off alongside stocks.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart" id="chart-correlation"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section method">
+      <h2>How to read this</h2>
+      <div class="grid two prose">
+        <div>
+          <h3>Money doesn't vanish in a selloff</h3>
+          <p>Every share sold has a buyer, so a falling market does not "drain" a fixed pot of cash. What changes is who
+            holds what and at what price. The useful question is where sellers park their proceeds and which markets
+            see persistent buying while stocks fall. That shows up as relative strength, heavy turnover and rising cash
+            balances, which is what this page tracks.</p>
+          <h3>Estimated flows</h3>
+          <p>Real fund flows (ETF creations and redemptions, money fund subscriptions) mostly sit behind paid data.
+            Flows here are estimated with <em>Chaikin money flow</em>: each day's dollar volume is signed by where the
+            close landed in the day's range. The rotation map then splits each net outflow across net inflows in
+            proportion to size; any imbalance is routed to or from <em>Cash &amp; sidelines</em>. Read it as a picture
+            of pressure, not a ledger of who bought from whom.</p>
+        </div>
+        <div>
+          <h3>Cash buckets</h3>
+          <ul>
+            <li><strong>Stablecoins</strong>: dollars waiting on crypto rails. Rising supply is often new buying power for crypto.</li>
+            <li><strong>Retail money funds</strong>: where households park cash. Jumps during selloffs show de-risking.</li>
+            <li><strong>Overnight reverse repo</strong>: excess cash money funds lend to the Fed.</li>
+            <li><strong>Treasury General Account</strong>: the government's cash at the Fed. A rising TGA drains liquidity from markets.</li>
+            <li><strong>Fed net liquidity</strong>: Fed balance sheet minus TGA minus reverse repo, a popular gauge of liquidity available to markets.</li>
+          </ul>
+          <h3>Selloffs</h3>
+          <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
+            confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and
+            left out of the playbook medians.</p>
+          <p class="muted small" id="sources"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap foot muted small">
+    Not investment advice. Data can be delayed, revised or wrong.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
