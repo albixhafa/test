@@ -638,16 +638,34 @@ function renderCorrelation(t) {
 
 // ---------- orchestration ----------
 
+function showError(message) {
+  const b = $("#warnings");
+  b.hidden = false;
+  const line = document.createElement("div");
+  line.textContent = message;
+  b.appendChild(line);
+}
+
+// Each panel renders on its own, so one failure can't blank the rest of the page.
+function safely(name, fn, t) {
+  try {
+    fn(t);
+  } catch (err) {
+    console.error(err);
+    showError(`The ${name} panel failed to draw: ${err.message}`);
+  }
+}
+
 function renderAll() {
   const t = theme();
-  renderKpis();
+  safely("headline", renderKpis);
   renderWindow();
-  renderPlaybook(t);
-  renderHeatmap(t);
-  renderCash(t);
-  renderRegime(t);
-  renderPerformance(t);
-  renderCorrelation(t);
+  safely("selloff playbook", renderPlaybook, t);
+  safely("selloff heatmap", renderHeatmap, t);
+  safely("cash", renderCash, t);
+  safely("risk appetite", renderRegime, t);
+  safely("performance", renderPerformance, t);
+  safely("correlation", renderCorrelation, t);
 }
 
 function renderWindow() {
@@ -655,8 +673,8 @@ function renderWindow() {
   document.querySelectorAll("#window-picker button").forEach((b) => {
     b.setAttribute("aria-checked", String(b.dataset.window === state.window));
   });
-  renderSankey(t);
-  renderIntensity(t);
+  safely("rotation map", renderSankey, t);
+  safely("buying vs selling", renderIntensity, t);
 }
 
 function storage(op, key, value) {
@@ -714,12 +732,15 @@ function wireControls() {
     clearTimeout(pending);
     pending = setTimeout(() => {
       Object.values(state.charts).forEach((c) => c.resize());
-      if (state.data) renderSankey(theme());
+      if (state.data) safely("rotation map", renderSankey, theme());
     }, 120);
   });
 }
 
 async function main() {
+  if (typeof echarts === "undefined") {
+    showError("The chart library (vendor/echarts-5.5.1.min.js) did not load, so charts can't be drawn. Try reloading the page.");
+  }
   wireControls();
   let data;
   try {

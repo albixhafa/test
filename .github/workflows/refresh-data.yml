@@ -5,10 +5,12 @@ on:
     # Weekdays after the US close.
     - cron: "23 22 * * 1-5"
   workflow_dispatch:
-  # Rebuild whenever the pipeline changes (the bot's own data commit does not retrigger).
+  # Rebuild and redeploy whenever the pipeline or the site changes
+  # (the bot's own data commit does not retrigger).
   push:
     paths:
       - "pipeline/**"
+      - "docs/**"
       - "requirements.txt"
       - ".github/workflows/refresh-data.yml"
 
