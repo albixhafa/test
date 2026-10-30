@@ -20,7 +20,7 @@ DEFAULT_OUT = Path(__file__).resolve().parent.parent / "docs" / "data" / "dashbo
 
 SOURCES = [
     {"name": "Yahoo Finance", "detail": "Daily OHLCV for ETFs and crypto (Stooq as fallback)"},
-    {"name": "FRED", "detail": "Fed balance sheet, TGA, reverse repo, retail money funds, M2"},
+    {"name": "FRED", "detail": "Fed balance sheet, TGA, reverse repo, retail money funds, M2, CPI"},
     {"name": "DefiLlama", "detail": "Total USD stablecoin supply"},
 ]
 
@@ -216,6 +216,8 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "cash": cash_out,
         "history": history,
         "markets_weekly": markets_weekly,
+        # Monthly CPI (index level) for the page's inflation-adjusted view.
+        "cpi": _series_points(macro["CPIAUCSL"][macro["CPIAUCSL"].index >= "2015-12-01"], 3) if "CPIAUCSL" in macro else None,
         "series": an.range_series(flow, panel["dollar_volume"][tickers], close),
         "streaks": streaks,
         "selloffs": {

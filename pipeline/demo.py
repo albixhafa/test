@@ -122,6 +122,8 @@ def generate(start="2016-01-01", end=None, seed=7):
                                         ("2022-06-01", 1020), ("2024-01-01", 1750), (end, 2150)], rng, 0.003),
         "M2SL": _smooth_path(monthly, [(start, 12400), ("2020-02-01", 15400), ("2022-04-01", 21700),
                                        ("2023-10-01", 20700), (end, 22600)], rng, 0.002),
+        "CPIAUCSL": _smooth_path(monthly, [(start, 237.0), ("2020-12-01", 262.0), ("2022-06-01", 296.0),
+                                           (end, 330.0)], rng, 0.0005),
     }
     stable_days = pd.date_range(start, end, freq="D")
     stable = _smooth_path(stable_days, [(start, 0.01), ("2017-12-01", 1.5), ("2019-12-01", 5.5),

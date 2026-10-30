@@ -58,6 +58,8 @@ FRED_SERIES = {
     "RRPONTSYD": {"name": "Overnight reverse repo", "unit_scale": 1.0},
     "RMFSL": {"name": "Retail money market funds", "unit_scale": 1.0},
     "M2SL": {"name": "M2 money supply", "unit_scale": 1.0},
+    # Index level, not dollars: used to restate amounts and prices in today's dollars.
+    "CPIAUCSL": {"name": "Consumer price index", "unit_scale": 1.0},
 }
 
 HISTORY_START = "2016-01-01"

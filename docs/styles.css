@@ -133,6 +133,10 @@ button:focus-visible, select:focus-visible, a:focus-visible, .info:focus-visible
   font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface);
   border: 1px solid var(--border); border-radius: 8px; padding: 2px 6px;
 }
+.real-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); white-space: nowrap; cursor: pointer; padding: 0 4px; }
+.real-toggle input { width: 15px; height: 15px; margin: 0; accent-color: var(--series-1); }
+.real-toggle:has(input:checked) { color: var(--text-primary); font-weight: 600; }
+.real-toggle:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 #range-custom-toggle[aria-pressed="true"] { color: var(--text-primary); background: var(--wash); font-weight: 600; }
 .section-nav-inner::-webkit-scrollbar { display: none; }
 .section-nav a {

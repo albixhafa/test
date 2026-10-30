@@ -180,7 +180,7 @@ const RANGE_PRESETS = [
   ["1Y", "1Y", "over the past year", "in the past year"],
   ["3Y", "3Y", "over the past 3 years", "in the past 3 years"],
   ["5Y", "5Y", "over the past 5 years", "in the past 5 years"],
-  ["ALL", "All", "since 2016", "since 2016"],
+  ["ALL", "All", "over all available history", "over all available history"],
 ];
 const RANGE_INFO = Object.fromEntries(RANGE_PRESETS.map(([k, label, span, hub]) => [k, { label, span, hub }]));
 
@@ -252,10 +252,65 @@ function rangeDays(b = rangeBounds()) {
   return (parseDay(b.end) - parseDay(b.start < "2016-01-01" ? "2016-01-01" : b.start)) / 864e5;
 }
 
+// ---------- inflation adjustment ----------
+
+state.real = false;
+
+// CPI level for the month of an ISO date. Months after the latest release use the latest
+// level, months before the first use the first.
+function cpiAt(iso) {
+  const c = state.data.cpi;
+  if (!c || !c.length) return null;
+  if (!state.cpiMap) state.cpiMap = new Map(c.map(([d, v]) => [d.slice(0, 7), v]));
+  const v = state.cpiMap.get(iso.slice(0, 7));
+  if (v != null) return v;
+  return iso < c[0][0] ? c[0][1] : c[c.length - 1][1];
+}
+
+function cpiLatest() {
+  const c = state.data.cpi;
+  return c && c.length ? c[c.length - 1] : null;
+}
+
+// Multiply a dollar amount from `iso` by this to express it in today's dollars.
+function deflator(iso) {
+  if (!state.real) return 1;
+  const now = cpiLatest();
+  const then = cpiAt(iso);
+  return now && then ? now[1] / then : 1;
+}
+
+// A price from `iso` in today's dollars; ratios of these are real (after-inflation) returns.
+function realPrice(price, iso) {
+  return price == null ? null : price * deflator(iso);
+}
+
+function realPoints(pts) {
+  return state.real ? pts.map(([d, v]) => [d, v == null ? null : v * deflator(d)]) : pts;
+}
+
+function scaleWheel(wheel, k) {
+  if (!wheel || k === 1) return wheel;
+  return {
+    net: Object.fromEntries(Object.entries(wheel.net).map(([g, v]) => [g, v * k])),
+    links: wheel.links.map((l) => ({ ...l, value: l.value * k })),
+    total_bn: wheel.total_bn * k,
+  };
+}
+
+function scaleNets(nets, k) {
+  return nets && k !== 1 ? Object.fromEntries(Object.entries(nets).map(([t, v]) => [t, v == null ? null : v * k])) : nets;
+}
+
+function dollarsNote() {
+  const c = cpiLatest();
+  return state.real && c ? ` Inflation-adjusted to ${fmtMonth(c[0])} dollars.` : "";
+}
+
 // Sum flows and dollar volume and measure the price change for every market over the
 // range. Uses daily rows when the range fits in the last three years, monthly otherwise.
 function aggregate(b = rangeBounds()) {
-  const key = `${b.start}|${b.end}|${b.inclusive ? 1 : 0}`;
+  const key = `${b.start}|${b.end}|${b.inclusive ? 1 : 0}|${state.real ? 1 : 0}`;
   if (state.aggCache && state.aggCache.key === key) return state.aggCache.value;
   const S = state.data.series;
   const D = S.daily;
@@ -273,14 +328,19 @@ function aggregate(b = rangeBounds()) {
   if (rows.length) {
     const first = rows[0];
     const last = rows[rows.length - 1];
+    const dates = daily ? D.dates : src.end;
+    const k = rows.map((i) => deflator(dates[i]));
     Object.keys(src.flow).forEach((t) => {
-      const sum = (arr) => rows.reduce((acc, i) => acc + (arr[i] || 0), 0);
+      const sum = (arr) => rows.reduce((acc, i, j) => acc + (arr[i] || 0) * k[j], 0);
       const net = sum(src.flow[t]);
       const dv = sum(src.dv[t]);
       const closes = src.close[t];
-      let before = first > 0 ? closes[first - 1] : null;
-      if (before == null) before = closes.slice(first, last + 1).find((v) => v != null);
-      const after = closes[last];
+      let before = first > 0 ? realPrice(closes[first - 1], dates[first - 1]) : null;
+      if (before == null) {
+        const j = closes.slice(first, last + 1).findIndex((v) => v != null);
+        before = j >= 0 ? realPrice(closes[first + j], dates[first + j]) : null;
+      }
+      const after = realPrice(closes[last], dates[last]);
       let volumeRatio = null;
       if (daily && first >= rows.length) {
         const prior = src.dv[t].slice(first - rows.length, first);
@@ -471,7 +531,7 @@ function renderKpis() {
   const agg = aggregate().assets;
   // Latest level, with the change over the selected range underneath.
   const cashTile = (key, label) => {
-    const [value, change] = d.cash[key] ? changeOverRange(d.cash[key]) : [null, null];
+    const [value, change] = d.cash[key] ? changeOverRange(realPoints(d.cash[key])) : [null, null];
     return { info: key, label, value: fmtUsdBn(value), delta: change == null ? "No new data in range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}` };
   };
   const r = d.regime;
@@ -484,9 +544,9 @@ function renderKpis() {
       delta: `Score ${fmtNum(r.score, 2, true)}`,
       gauge: ((pos + 2) / 4) * 100,
     },
-    { info: "spy", label: `S&P 500, ${rangeShort()}`, value: fmtPct(agg.SPY && agg.SPY.ret), delta: `${fmtPct(k.drawdown)} from 1-year high` },
+    { info: "spy", label: `S&P 500, ${rangeShort()}${state.real ? ", real" : ""}`, value: fmtPct(agg.SPY && agg.SPY.ret), delta: `${fmtPct(k.drawdown)} from 1-year high` },
     { info: "vix", label: "VIX", value: fmtNum(k.vix, 1), delta: "Implied S&P 500 volatility" },
-    { info: "btc", label: `Bitcoin, ${rangeShort()}`, value: fmtPct(agg["BTC-USD"] && agg["BTC-USD"].ret), delta: "Crypto risk appetite" },
+    { info: "btc", label: `Bitcoin, ${rangeShort()}${state.real ? ", real" : ""}`, value: fmtPct(agg["BTC-USD"] && agg["BTC-USD"].ret), delta: "Crypto risk appetite" },
     cashTile("stablecoins", "Stablecoin supply"),
     cashTile("retail_mmf", "Money funds"),
     cashTile("net_liquidity", "Fed net liquidity"),
@@ -590,7 +650,8 @@ function periodAt(kind, i) {
   const groups = state.data.groups;
   if (kind === "daily") {
     const D = state.data.series.daily;
-    const marketNets = Object.fromEntries(Object.entries(D.flow).map(([t, v]) => [t, v[i]]));
+    const k = deflator(D.dates[i]);
+    const marketNets = Object.fromEntries(Object.entries(D.flow).map(([t, v]) => [t, v[i] == null ? null : v[i] * k]));
     return { start: D.dates[i], end: D.dates[i], wheel: classFlows(marketNets), marketNets };
   }
   const h = state.data.history[kind];
@@ -609,7 +670,8 @@ function periodAt(kind, i) {
     const j = M.end.indexOf(h.end[i]);
     if (j >= 0) marketNets = Object.fromEntries(Object.entries(M.flow).map(([t, v]) => [t, v[j]]));
   }
-  return { start: h.start[i], end: h.end[i], wheel, marketNets };
+  const k = deflator(h.end[i]);
+  return { start: h.start[i], end: h.end[i], wheel: scaleWheel(wheel, k), marketNets: scaleNets(marketNets, k) };
 }
 
 // Source indices of the periods that fall in the selected range.
@@ -639,8 +701,23 @@ function historyView(kind, i) {
   };
 }
 
+// A selloff with returns made real (after inflation) and flows in today's dollars.
+function realEpisode(e) {
+  if (!state.real) return e;
+  const over = cpiAt(e.peak) / cpiAt(e.trough);
+  const after = cpiAt(e.trough) / cpiAt(shiftDate(e.trough, 28));
+  const k = deflator(e.trough);
+  const assets = Object.fromEntries(Object.entries(e.assets).map(([t, a]) => [t, {
+    ...a,
+    ret: a.ret == null ? null : (1 + a.ret) * over - 1,
+    rebound: a.rebound == null ? null : (1 + a.rebound) * after - 1,
+    net_flow_bn: a.net_flow_bn == null ? null : a.net_flow_bn * k,
+  }]));
+  return { ...e, drawdown: (1 + e.drawdown) * over - 1, assets, wheel: scaleWheel(e.wheel, k), _src: e };
+}
+
 function episodeView(i) {
-  const e = state.data.selloffs.episodes[i];
+  const e = realEpisode(state.data.selloffs.episodes[i]);
   return {
     start: e.peak, end: e.trough, wheel: e.wheel,
     span: `during the ${fmtMonth(e.peak)} selloff`,
@@ -778,7 +855,7 @@ function renderWheel(t) {
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
   $("#wheel-headline").textContent = wheelHeadline(view);
-  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.${state.replay ? "" : longRangeNote(view.start, view.end)}`;
+  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.${state.replay ? "" : longRangeNote(view.start, view.end)}${dollarsNote()}`;
   $("#wheel-sub").appendChild(infoButton("estimated flows", "flows"));
 
   // Side list: net per class, biggest inflow first.
@@ -1028,7 +1105,7 @@ function renderSankey(t) {
   const w = aggregate();
   const sk = allocateFlows(Object.fromEntries(Object.entries(w.assets).map(([k, a]) => [k, a.net_flow_bn])));
   $("#sankey-sub").textContent =
-    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.${longRangeNote(w.start, w.end)}`;
+    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.${longRangeNote(w.start, w.end)}${dollarsNote()}`;
   const ids = new Set();
   sk.links.forEach((l) => { ids.add(l.source); ids.add(l.target); });
   const nodeTotals = {};
@@ -1224,10 +1301,11 @@ function historyData(kind) {
   } else {
     const h = state.data.history[kind];
     idx.forEach((i) => {
+      const k = deflator(h.end[i]);
       out.start.push(h.start[i]);
       out.end.push(h.end[i]);
-      groups.forEach((g) => out.net[g].push(h.net[g][i]));
-      out.total.push(h.total[i]);
+      groups.forEach((g) => out.net[g].push(h.net[g][i] * k));
+      out.total.push(h.total[i] * k);
     });
   }
   return out;
@@ -1266,8 +1344,8 @@ function renderHistory(t) {
     `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})`;
   const unit = { daily: "day", weekly: "week", monthly: "month" }[kind];
   $("#history-sub").textContent = mode === "flows"
-    ? `Net flow per ${unit}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.`
-    : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.`;
+    ? `Net flow per ${unit}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.${dollarsNote()}`
+    : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
 
   const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v)); };
   const series = groups.map((g, gi) => {
@@ -1398,10 +1476,10 @@ function renderCloseup(t) {
     pts = { unit: "month", label: "Monthly net flow", idx: M.end.map((x, i) => (overlapsRange(M.start[i], x, b) ? i : -1)).filter((i) => i >= 0), end: M.end, close: M.close[tk], flow: M.flow[tk] };
   }
   const ends = pts.idx.map((i) => pts.end[i]);
-  const closes = pts.idx.map((i) => pts.close[i]);
+  const closes = pts.idx.map((i) => realPrice(pts.close[i], pts.end[i]));
   const base = closes.find((v) => v != null);
   const price = ends.map((e, i) => [e, closes[i] == null || !base ? null : Math.round((closes[i] / base) * 1000) / 10]);
-  const flows = ends.map((e, i) => [e, pts.flow[pts.idx[i]]]);
+  const flows = ends.map((e, i) => [e, pts.flow[pts.idx[i]] == null ? null : pts.flow[pts.idx[i]] * deflator(e)]);
   const narrow = narrowScreen();
   const c = chart("chart-closeup");
   c.setOption({
@@ -1426,7 +1504,7 @@ function renderCloseup(t) {
       { type: "time", gridIndex: 1, ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
     ],
     yAxis: [
-      { type: "value", gridIndex: 0, scale: true, name: "Price, indexed to 100", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
+      { type: "value", gridIndex: 0, scale: true, name: state.real ? "Real price, indexed to 100" : "Price, indexed to 100", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
       { type: "value", gridIndex: 1, name: pts.label, nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
     ],
     series: [
@@ -1452,7 +1530,7 @@ function renderCloseup(t) {
 // Selloffs that overlap the selected range.
 function selloffsInRange() {
   const b = rangeBounds();
-  return state.data.selloffs.episodes.filter((e) => overlapsRange(e.peak, e.trough, b));
+  return state.data.selloffs.episodes.filter((e) => overlapsRange(e.peak, e.trough, b)).map(realEpisode);
 }
 
 // Port of pipeline/analytics.py playbook(): how each market behaved across completed selloffs.
@@ -1617,7 +1695,8 @@ function renderHeatmap(t) {
   }, true);
   c.off("click");
   c.on("click", (p) => {
-    const i = state.data.selloffs.episodes.indexOf(eps[p.data[1]]);
+    const e = eps[p.data[1]];
+    const i = state.data.selloffs.episodes.indexOf(e._src || e);
     if (state.data.selloffs.episodes[i].wheel) replay(episodeView(i));
   });
   const cashKeys = [["stablecoins", "Stablecoins"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
@@ -1796,6 +1875,7 @@ function changeOverRange(pts, b = rangeBounds()) {
 }
 
 function renderCash(t) {
+  $("#cash-sub").textContent = `Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
   const grid = $("#cash-grid");
   const cash = state.data.cash;
   if (!grid.childElementCount) {
@@ -1810,8 +1890,9 @@ function renderCash(t) {
     });
   }
   CASH_PANELS.filter((p) => cash[p.key]).forEach((p) => {
-    const pts = pointsInRange(cash[p.key]);
-    const [value, change] = changeOverRange(cash[p.key]);
+    const series = realPoints(cash[p.key]);
+    const pts = pointsInRange(series);
+    const [value, change] = changeOverRange(series);
     const card = document.getElementById(`chart-cash-${p.key}`).parentElement;
     card.querySelector(".figure").textContent = fmtUsdBn(value);
     card.querySelector(".delta").textContent = change == null ? "No new data in this range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}`;
@@ -1959,7 +2040,7 @@ function performanceInRange() {
   if (idx.length && idx[0] > 0) idx.unshift(idx[0] - 1); // start from the close just before the range
   const series = {};
   Object.keys(src.close).forEach((tk) => {
-    const closes = idx.map((i) => src.close[tk][i]);
+    const closes = idx.map((i) => realPrice(src.close[tk][i], dates[i]));
     const base = closes.find((v) => v != null);
     series[tk] = closes.map((v) => (v == null || !base ? null : Math.round((v / base) * 1000) / 10));
   });
@@ -1967,6 +2048,9 @@ function performanceInRange() {
 }
 
 function renderPerformance(t) {
+  $("#performance-sub").textContent = state.real
+    ? "One market per class, after inflation, indexed to 100 at the start of the selected range."
+    : "One market per class, indexed to 100 at the start of the selected range.";
   const p = performanceInRange();
   const tickers = REPRESENTATIVES.filter((tk) => p.series[tk]);
   chart("chart-performance").setOption(lineOptions(t, {
@@ -2066,7 +2150,21 @@ function buildRangeControls() {
   from.max = to.max = state.data.meta.as_of;
 }
 
+function setReal(on) {
+  state.real = on && !!cpiLatest();
+  state.aggCache = null;
+  // A replay was computed in the old units; rebuild it from its key.
+  if (state.replay) state.replay = viewFromKey(state.replay.key);
+  storage("set", "lfm-real", state.real ? "1" : "0");
+  writeHash();
+  renderAll();
+}
+
 function syncRangeControls() {
+  const box = $("#real-toggle");
+  box.checked = state.real;
+  box.disabled = !cpiLatest();
+  if (box.disabled) box.parentElement.title = "Inflation data (CPI) is unavailable in this build";
   const custom = state.range.preset === "custom";
   document.querySelectorAll("#range-presets button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.range === state.range.preset)));
   $("#range-custom-toggle").setAttribute("aria-pressed", String(custom));
@@ -2099,6 +2197,7 @@ function applyCustomRange() {
 function writeHash() {
   if (!state.data) return;
   const params = new URLSearchParams();
+  if (state.real) params.set("real", "1");
   if (state.range.preset === "custom") {
     params.set("from", state.range.start);
     params.set("to", state.range.end);
@@ -2119,12 +2218,13 @@ function readHash() {
   const legacy = { 5: "1W", 20: "1M", 60: "3M" }[params.get("w")];
   const preset = params.get("range") || legacy;
   if (RANGE_INFO[preset]) state.range = { preset, start: null, end: null };
+  if (params.has("real")) state.real = params.get("real") === "1" && !!cpiLatest();
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   if (iso.test(params.get("from") || "") && iso.test(params.get("to") || "")) {
     state.range = { preset: "custom", start: params.get("from"), end: params.get("to") };
   }
   state.history.kind = autoGrain();
-  if (params.get("hk") && d.history[params.get("hk")]) state.history.kind = params.get("hk");
+  if (["daily", "weekly", "monthly"].includes(params.get("hk")) && grainAvailable(params.get("hk"))) state.history.kind = params.get("hk");
   if (["flows", "cumulative"].includes(params.get("hm"))) state.history.mode = params.get("hm");
   if (params.get("m") && state.assets[params.get("m")]) state.market = params.get("m");
   try {
@@ -2182,6 +2282,7 @@ function wireControls() {
     if (!box.hidden) $("#range-from").focus();
   });
   $("#range-apply").addEventListener("click", applyCustomRange);
+  $("#real-toggle").addEventListener("change", (ev) => setReal(ev.target.checked));
   ["range-from", "range-to"].forEach((id) => $(`#${id}`).addEventListener("keydown", (ev) => { if (ev.key === "Enter") applyCustomRange(); }));
 
   document.querySelectorAll(".table-toggle").forEach((btn) => {
@@ -2309,6 +2410,7 @@ async function main() {
     // ignore a malformed saved range
   }
   state.history.kind = autoGrain();
+  state.real = storage("get", "lfm-real") === "1" && !!cpiLatest();
   readHash();
   syncReplayControls();
 
