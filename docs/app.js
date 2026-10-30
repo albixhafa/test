@@ -434,8 +434,6 @@ function classFlows(assetNets) {
 
 const INFO = {
   regime: "A blend of six signals: stocks, small vs big companies, risky vs safe bonds, bitcoin, the dollar and the VIX, each compared with its own past year. Above +0.5 investors are reaching for risk; below −0.5 they are running from it.",
-  spy: "The 500 largest US companies. Shows the change over the past month and how far the index sits below its highest close of the past year.",
-  vix: "The market's expected swings in the S&P 500 over the next 30 days, priced from options. Around 12–20 is calm; above 30 is fear.",
   btc: "Bitcoin's price change over the past month. It tends to move with investors' appetite for risk.",
   stablecoins: "Crypto tokens pegged to the dollar, such as USDT and USDC. Their total supply is cash sitting on crypto rails, ready to buy.",
   mmf_total: "Every US money market fund, retail and institutional, from the Treasury's Office of Financial Research (SEC filings, monthly, about a month behind). This is the biggest pool of cash on the sidelines. Its net flows are estimated as the change in assets minus the interest those assets earned at the T-bill rate.",
@@ -504,105 +502,8 @@ const SIGNAL_TEXT = {
   "Volatility (inverted)": ["Expected volatility is unusually low: markets are calm.", "Expected volatility (VIX) is unusually high: markets are nervous."],
 };
 
-const REGIME_TEXT = {
-  "Risk-on": "investors are reaching for risk",
-  "Risk-off": "investors are running from risk",
-  "Neutral": "no strong rush into or out of risk",
-  "Unknown": "not enough data to judge",
-};
-
-// Fund names inside a sentence: "the S&P 500", "high-yield bonds", "long Treasuries".
-function sentenceName(tk) {
-  if (tk === "SPY") return "the S&P 500";
-  const name = assetName(tk).replace(/\s*\(.*\)$/, "");
-  return /^[A-Z][a-z]/.test(name) && !/^Treasur/.test(name) ? name[0].toLowerCase() + name.slice(1) : name;
-}
-
 function listText(items) {
   return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
-
-function fundLine(entries) {
-  return entries.map(([tk, a]) => `${shortName(tk)} ${fmtUsdBn(a.net_flow_bn, true)}${a.intensity != null ? ` (${fmtPct(a.intensity, 1)} of the fund)` : ""}`).join(", ");
-}
-
-// Futures markets inside a sentence.
-const FUTURES_SENTENCE = {
-  sp500: "S&P 500 futures", nasdaq: "Nasdaq 100 futures", ust10: "10-year Treasury futures", ustbond: "long Treasury bond futures",
-  dollar: "the dollar", bitcoin: "bitcoin futures", vix: "VIX futures", yen: "the yen", euro: "the euro", gold: "gold", crude: "crude oil",
-};
-
-// The answer to "where is money flowing?" for the selected range, plus three facts about now.
-function renderNow() {
-  const d = state.data;
-  const k = d.kpis;
-  const b = rangeBounds();
-  const w = aggregate();
-  const past = b.end < d.meta.as_of;
-  const funds = Object.entries(w.assets).filter(([, a]) => a.net_flow_bn != null && Math.abs(a.net_flow_bn) >= 0.05);
-  const ins = funds.filter(([, a]) => a.net_flow_bn > 0).sort((x, z) => z[1].net_flow_bn - x[1].net_flow_bn).slice(0, 3);
-  const outs = funds.filter(([, a]) => a.net_flow_bn < 0).sort((x, z) => x[1].net_flow_bn - z[1].net_flow_bn).slice(0, 3);
-  const names = (list) => listText(list.slice(0, 2).map(([tk]) => sentenceName(tk)));
-  const [leave, go] = past ? ["left", "went into"] : ["is leaving", "is going into"];
-  const goTail = past ? "went into" : "going into";
-  $("#now-span").textContent = `${capitalise(rangeSpan())} · ${fmtRange(w.start, w.end)}`;
-  $("#now-headline").textContent = outs.length && ins.length
-    ? `Money ${leave} ${names(outs)} and ${goTail} ${names(ins)}.`
-    : ins.length ? `Money ${go} ${names(ins)}.` : outs.length ? `Money ${leave} ${names(outs)}.` : "Little money moved in or out of funds.";
-
-  // Three facts about today, whatever the range.
-  const chips = $("#now-chips");
-  chips.replaceChildren();
-  const chip = (text, cls, info) => {
-    const li = document.createElement("li");
-    li.className = `chip ${cls || ""}`;
-    li.textContent = text;
-    if (info) li.appendChild(infoButton(text, info));
-    chips.appendChild(li);
-  };
-  const eps = d.selloffs.episodes;
-  const last = eps[eps.length - 1];
-  chip(`Mood: ${d.regime.label}`, { "Risk-on": "on", "Risk-off": "off" }[d.regime.label] || "", "regime");
-  chip(last && last.ongoing ? `S&P 500 in a selloff: ${fmtPct(last.drawdown, 1)}` : `S&P 500 ${fmtPct(k.drawdown, 1)} from its high`, last && last.ongoing ? "off" : "", "spy");
-  if (k.vix != null) chip(`VIX ${fmtNum(k.vix, 1)}`, k.vix >= 30 ? "off" : "", "vix");
-
-  const items = [];
-  if (ins.length) items.push(["In: ", fundLine(ins)]);
-  if (outs.length) items.push(["Out: ", fundLine(outs)]);
-  const fresh = -(classFlows(Object.fromEntries(Object.entries(w.assets).map(([tk, a]) => [tk, a.net_flow_bn]))).net[SIDELINES] || 0);
-  const m = mmfFlowFor(b.start, b.end);
-  const mf = d.mmf_flows && d.mmf_flows.length ? d.mmf_flows[d.mmf_flows.length - 1] : null;
-  const mmfText = m
-    ? `money market funds ${m.value >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(m.value))} in ${monthSpan(m.from, m.to)}`
-    : mf ? `money market funds ${mf[1] >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(mf[1] * deflator(mf[0])))} in ${fmtMonth(mf[0])}, the latest month` : "";
-  items.push(["Overall: ", `${fresh >= 0 ? `${fmtUsdBn(fresh)} of new money came into the tracked funds` : `${fmtUsdBn(-fresh)} left the tracked funds`}${mmfText ? `; ${mmfText}` : ""}.`]);
-
-  // What stands out: record-sized flows, crowded futures, nervous lenders.
-  const watch = [];
-  Object.entries(flowPercentiles())
-    .filter(([tk, p]) => (p >= 95 || p <= 5) && tk !== "STABLES" && w.assets[tk] && w.assets[tk].net_flow_bn != null)
-    .sort((x, z) => Math.abs(z[1] - 50) - Math.abs(x[1] - 50)).slice(0, 2)
-    .forEach(([tk, p]) => watch.push(`${shortName(tk)} ${p >= 50 ? "inflows" : "outflows"} are bigger than ${Math.round(p >= 50 ? p : 100 - p)}% of similar periods in three years`));
-  (d.positioning || []).map((p) => ({ p, c: crowding(p, b) }))
-    .filter((r) => r.c && (r.c.pct >= 90 || r.c.pct <= 10))
-    .sort((x, z) => Math.abs(z.c.pct - 50) - Math.abs(x.c.pct - 50)).slice(0, 2)
-    .forEach((r) => watch.push(`speculators are ${extremeWord(r.c.pct, r.c.net)} in ${FUTURES_SENTENCE[r.p.key] || r.p.name} in three years`));
-  const hy = d.rates && d.rates.BAMLH0A0HYM2;
-  if (hy) {
-    const [, chg] = changeOverRange(hy.points, b);
-    if (chg != null && Math.abs(chg) >= 0.25) watch.push(`junk-bond spreads ${chg > 0 ? "widened" : "narrowed"} ${fmtRateChange(Math.abs(chg), "pct").replace("+", "")}${chg > 0 ? ", lenders are getting nervous" : ""}`);
-  }
-  if (watch.length) items.push(["Worth watching: ", `${capitalise(watch.slice(0, 3).join("; "))}.`]);
-
-  const list = $("#now-list");
-  list.replaceChildren();
-  items.forEach(([lead, text]) => {
-    const li = document.createElement("li");
-    const strong = document.createElement("strong");
-    strong.textContent = lead;
-    li.append(strong, document.createTextNode(text));
-    list.appendChild(li);
-  });
 }
 
 function median(xs) {
@@ -625,8 +526,8 @@ function classHeadline(view) {
   const top = ranked[0];
   const bottom = ranked[ranked.length - 1];
   const parts = [];
-  if (top && top[1] > 0.05) parts.push(`${top[0]} took in the most (${fmtUsdBn(top[1], true)})`);
-  if (bottom && bottom[1] < -0.05) parts.push(`${parts.length ? bottom[0].toLowerCase() : bottom[0]} lost the most (${fmtUsdBn(bottom[1], true)})`);
+  if (top && top[1] > 0.05) parts.push(`${top[0].toLowerCase()} took in the most (${fmtUsdBn(top[1], true)})`);
+  if (bottom && bottom[1] < -0.05) parts.push(`${bottom[0].toLowerCase()} lost the most (${fmtUsdBn(bottom[1], true)})`);
   if (!parts.length) return `Little money moved in or out ${view.span}`;
   return `${capitalise(view.span)}, ${parts.join(" and ")}`;
 }
@@ -2375,7 +2276,6 @@ function showTab(group, tab, { render = true, hash = true } = {}) {
 function renderAll() {
   const t = theme();
   syncRangeControls();
-  safely("summary", renderNow);
   Object.values(state.tabs).forEach(renderTab);
   safely("liquidity history", renderHistory, t);
   safely("where the money sits", renderPools, t);
