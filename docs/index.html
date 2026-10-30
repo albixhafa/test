@@ -16,7 +16,7 @@
     <div class="wrap top-inner">
       <div>
         <h1>Liquidity Flow Monitor</h1>
-        <p class="sub">Where money goes when markets sell off: stocks, bonds, cash, gold, the dollar and crypto.</p>
+        <p class="sub">Where money is flowing: stocks, bonds, cash, gold and crypto.</p>
       </div>
       <div class="top-meta">
         <span id="asof" class="muted"></span>
@@ -30,23 +30,22 @@
     <div class="wrap nav-row">
     <div class="section-nav-inner">
       <a href="#now">Now</a>
-      <a href="#wheel">Wheel</a>
-      <a href="#history">History</a>
-      <a href="#markets">Markets</a>
+      <a href="#flows">Flows</a>
       <a href="#selloffs">Selloffs</a>
-      <a href="#outlook">Outlook</a>
-      <a href="#positioning">Positioning</a>
-      <a href="#cash">Cash</a>
-      <a href="#rates">Rates</a>
-      <a href="#risk">Risk</a>
+      <a href="#backdrop">Backdrop</a>
       <a href="#guide">Guide</a>
     </div>
-    <div class="range-bar" role="group" aria-label="Date range for every chart and table">
+    <div class="range-bar" role="group" aria-label="Date range for the whole page">
       <div class="segmented compact" id="range-presets" role="radiogroup" aria-label="Date range"></div>
       <button type="button" class="ghost small" id="range-custom-toggle" aria-expanded="false" aria-controls="custom-range">Custom</button>
-      <label class="real-toggle" title="Restate dollar amounts and prices in today's dollars using the US consumer price index">
-        <input type="checkbox" id="real-toggle"> Inflation-adjusted
-      </label>
+      <details class="settings">
+        <summary class="ghost small" aria-label="More options">⋯</summary>
+        <div class="settings-menu">
+          <label class="real-toggle" title="Restate dollar amounts and prices in today's dollars using the US consumer price index">
+            <input type="checkbox" id="real-toggle"> Inflation-adjusted
+          </label>
+        </div>
+      </details>
       <span class="custom-range" id="custom-range" hidden>
         <label>From <input type="date" id="range-from"></label>
         <label>to <input type="date" id="range-to"></label>
@@ -63,128 +62,107 @@
     </div>
     <div id="warnings" class="banner warn" hidden></div>
 
-    <section id="now" class="now" aria-labelledby="now-title">
-      <h2 id="now-title">Right now</h2>
+    <section id="now" class="now" aria-labelledby="now-headline">
+      <p class="eyebrow" id="now-span"></p>
+      <h2 id="now-headline"></h2>
+      <ul class="now-chips" id="now-chips"></ul>
       <ul class="now-list" id="now-list"></ul>
     </section>
 
-    <section class="kpis" id="kpis" aria-label="Headline indicators"></section>
-
-    <section id="wheel" class="section">
+    <section id="flows" class="section">
       <div class="section-head">
         <div>
-          <h2>The liquidity wheel</h2>
-          <p class="muted">Real money moving between stocks, bonds, cash, gold and crypto, and in from or out to the sidelines.</p>
+          <h2>Where money is flowing</h2>
+          <p class="muted">Real money into and out of funds over the selected range. Tap any fund to see its price and flows.</p>
         </div>
       </div>
-      <article class="card" data-card="wheel">
-        <header class="card-head">
-          <div>
-            <h3 id="wheel-headline"></h3>
-            <p class="muted small" id="wheel-sub"></p>
-          </div>
-          <div class="card-actions">
-            <label class="visually-hidden" for="replay-select">Replay a past period</label>
-            <select id="replay-select" class="ghost small"></select>
-            <button type="button" class="ghost small" id="flow-toggle">Pause flow</button>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </div>
-        </header>
-        <div class="replay-bar" id="replay-bar" hidden>
-          <span id="replay-text"></span>
-          <button type="button" class="ghost small" id="replay-exit">Back to now</button>
-        </div>
-        <div class="wheel-layout">
-          <div class="chart wheel" id="chart-wheel"></div>
-          <div class="wheel-side">
-            <h4 class="small muted">Net in and out, by class</h4>
-            <ul class="wheel-classes" id="wheel-classes"></ul>
-            <p class="muted small" id="wheel-mmf"></p>
-            <p class="muted small">Arc length is how much moved through a class; ribbons point from where money left to where
-              it went, and the moving dots show that money in motion. Hover, tap or tab to a class to trace its flows. The sidelines balance the wheel: money entering the tracked funds from outside, or leaving them altogether.</p>
-          </div>
-        </div>
-        <div class="table-wrap" hidden></div>
-      </article>
-    </section>
-
-    <section class="section" id="history">
-      <div class="section-head">
-        <div>
-          <h2>Liquidity history</h2>
-          <p class="muted">Money in and out of each class over time. Click any bar to replay that period in the wheel.</p>
-        </div>
-        <div class="controls">
-          <div class="segmented" role="radiogroup" aria-label="History period" id="history-kind">
-            <button type="button" role="radio" data-kind="daily">Daily</button>
-            <button type="button" role="radio" data-kind="weekly">Weekly</button>
-            <button type="button" role="radio" data-kind="monthly">Monthly</button>
-          </div>
-          <div class="segmented" role="radiogroup" aria-label="History view" id="history-mode">
-            <button type="button" role="radio" data-mode="flows">Flows</button>
-            <button type="button" role="radio" data-mode="cumulative">Running total</button>
-          </div>
-        </div>
-      </div>
-      <article class="card" data-card="history">
-        <header class="card-head">
-          <div>
-            <h3 id="history-headline"></h3>
-            <p class="muted small" id="history-sub"></p>
+      <article class="card tabbed" data-tabs="flows">
+        <div class="card-tabs">
+          <div class="tabs" role="tablist" aria-label="Flow views">
+            <button type="button" role="tab" data-tab="wheel">Wheel</button>
+            <button type="button" role="tab" data-tab="funds">Funds</button>
+            <button type="button" role="tab" data-tab="quadrant">Vs returns</button>
           </div>
           <button type="button" class="ghost small table-toggle">Table</button>
-        </header>
-        <div class="chart" id="chart-history"></div>
-        <div class="table-wrap" hidden></div>
-      </article>
-    </section>
-
-    <section id="markets" class="section">
-      <div class="section-head">
-        <div>
-          <h2>Market by market</h2>
-          <p class="muted">The same window, broken down by individual market.</p>
         </div>
-      </div>
-      <div class="grid two">
-        <article class="card" data-card="quadrant">
+
+        <div class="panel" data-panel="wheel" data-card="wheel" role="tabpanel">
+          <header class="card-head">
+            <div>
+              <h3 id="wheel-headline"></h3>
+              <p class="muted small" id="wheel-sub"></p>
+            </div>
+            <div class="card-actions">
+              <label class="visually-hidden" for="replay-select">Replay a past period</label>
+              <select id="replay-select" class="ghost small"></select>
+              <button type="button" class="ghost small" id="flow-toggle">Pause flow</button>
+            </div>
+          </header>
+          <div class="replay-bar" id="replay-bar" hidden>
+            <span id="replay-text"></span>
+            <button type="button" class="ghost small" id="replay-exit">Back to the range</button>
+          </div>
+          <div class="wheel-layout">
+            <div class="chart wheel" id="chart-wheel"></div>
+            <div class="wheel-side">
+              <h4 class="small muted">Net in and out, by class</h4>
+              <ul class="wheel-classes" id="wheel-classes"></ul>
+              <p class="muted small" id="wheel-mmf"></p>
+              <p class="muted small">Ribbons point from where money left to where it went. Hover or tap a class to trace it.
+                The sidelines are money entering the tracked funds from outside, or leaving them altogether.</p>
+            </div>
+          </div>
+          <div class="table-wrap"></div>
+        </div>
+
+        <div class="panel" data-panel="funds" data-card="intensity" role="tabpanel" hidden>
+          <header class="card-head">
+            <div>
+              <h3 id="intensity-title">Money in and out of each fund</h3>
+              <p class="muted small" id="intensity-sub"></p>
+            </div>
+            <div class="segmented compact" role="radiogroup" aria-label="Measure" id="funds-metric">
+              <button type="button" role="radio" data-metric="usd">Dollars</button>
+              <button type="button" role="radio" data-metric="pct">% of fund</button>
+            </div>
+          </header>
+          <div class="chart tall" id="chart-intensity"></div>
+          <div class="table-wrap"></div>
+        </div>
+
+        <div class="panel" data-panel="quadrant" data-card="quadrant" role="tabpanel" hidden>
           <header class="card-head">
             <div>
               <h3>Flows vs returns</h3>
               <p class="muted small" id="quadrant-sub"></p>
             </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
           </header>
           <div class="chart tall" id="chart-quadrant"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-        <article class="card" data-card="intensity">
-          <header class="card-head">
-            <div>
-              <h3>Flow as a share of each fund</h3>
-              <p class="muted small" id="intensity-sub">Net money in or out over the selected range, divided by the fund's size, so big and small funds compare fairly. Returns are in the table.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
-          <div class="chart tall" id="chart-intensity"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-      </div>
-      <article class="card closeup" data-card="closeup" id="closeup">
+          <div class="table-wrap"></div>
+        </div>
+      </article>
+
+      <article class="card" data-card="history" id="history">
         <header class="card-head">
           <div>
-            <h3 id="closeup-title">Market close-up</h3>
-            <p class="muted small">Price and flow for one market over the selected range. Click any market name or bar on this page to open it here.</p>
+            <h3 id="history-headline"></h3>
+            <p class="muted small" id="history-sub"></p>
           </div>
           <div class="card-actions">
-            <label class="visually-hidden" for="closeup-select">Choose a market</label>
-            <select id="closeup-select" class="ghost small"></select>
+            <div class="tabs" role="radiogroup" aria-label="History view" id="history-mode">
+              <button type="button" role="radio" data-mode="flows">Flows</button>
+              <button type="button" role="radio" data-mode="cumulative">Running total</button>
+            </div>
+            <div class="segmented compact" role="radiogroup" aria-label="History period" id="history-kind">
+              <button type="button" role="radio" data-kind="daily" title="Daily">D</button>
+              <button type="button" role="radio" data-kind="weekly" title="Weekly">W</button>
+              <button type="button" role="radio" data-kind="monthly" title="Monthly">M</button>
+            </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </div>
         </header>
-        <ul class="closeup-stats" id="closeup-stats"></ul>
-        <div class="chart" id="chart-closeup"></div>
-        <div class="table-wrap" hidden></div>
+        <div class="chart" id="chart-history"></div>
+        <div class="table-wrap"></div>
       </article>
     </section>
 
@@ -192,150 +170,78 @@
       <div class="section-head">
         <div>
           <h2>When stocks sell off, where does money hide?</h2>
-          <p class="muted" id="selloff-sub"></p>
+          <p class="muted" id="selloff-stats"></p>
         </div>
       </div>
-      <div class="grid two">
-        <article class="card" data-card="playbook">
-          <header class="card-head">
-            <div>
-              <h3>The selloff playbook</h3>
-              <p class="muted small">Median return from S&amp;P 500 peak to trough, across completed selloffs.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
+      <article class="card tabbed" data-tabs="selloffs">
+        <div class="card-tabs">
+          <div class="tabs" role="tablist" aria-label="Selloff views">
+            <button type="button" role="tab" data-tab="playbook">Playbook</button>
+            <button type="button" role="tab" data-tab="heatmap">Every selloff</button>
+          </div>
+          <button type="button" class="ghost small table-toggle">Table</button>
+        </div>
+        <p class="muted small tab-lede" id="selloff-sub"></p>
+        <div class="panel" data-panel="playbook" data-card="playbook" role="tabpanel">
+          <p class="muted small">Median return from S&amp;P 500 peak to trough. Tap a bar for the market's details.</p>
           <div class="chart tall" id="chart-playbook"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-        <article class="card" data-card="heatmap">
-          <header class="card-head">
-            <div>
-              <h3>Every selloff, every market</h3>
-              <p class="muted small">Return from peak to trough. Newest at top. Click a row to replay it in the wheel.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
+          <div class="table-wrap"></div>
+        </div>
+        <div class="panel" data-panel="heatmap" data-card="heatmap" role="tabpanel" hidden>
+          <p class="muted small">Return from peak to trough in every selloff, newest at top. Tap a row to replay it in the wheel.</p>
           <div class="chart" id="chart-heatmap"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-      </div>
+          <div class="table-wrap"></div>
+        </div>
+      </article>
     </section>
 
-    <section id="outlook" class="section">
+    <section id="backdrop" class="section">
       <div class="section-head">
         <div>
-          <h2>Outlook: what history suggests</h2>
-          <p class="muted">Patterns from past selloffs and recent flows that are worth watching. These cards always use the full history, whatever range is selected. History, not predictions, and not investment advice.</p>
+          <h2>Backdrop</h2>
+          <p class="muted">The cash waiting on the sidelines, the price of money, how traders are positioned and the mood. Tap a row for its chart.</p>
         </div>
       </div>
-      <div class="grid outlook" id="outlook-grid"></div>
-    </section>
-
-    <section id="positioning" class="section">
-      <div class="section-head">
-        <div>
-          <h2>Positioning: who is crowded?</h2>
-          <p class="muted" id="positioning-sub">Net futures positions of hedge funds and other speculators, from the CFTC's weekly
-            Commitments of Traders report. Extremes mark crowded trades, which can unwind fast.</p>
+      <article class="card tabbed" data-tabs="backdrop">
+        <div class="card-tabs">
+          <div class="tabs" role="tablist" aria-label="Backdrop views">
+            <button type="button" role="tab" data-tab="cash">Cash</button>
+            <button type="button" role="tab" data-tab="rates">Rates</button>
+            <button type="button" role="tab" data-tab="positioning">Positioning</button>
+            <button type="button" role="tab" data-tab="risk">Risk</button>
+          </div>
         </div>
-      </div>
-      <div class="grid two">
-        <article class="card" data-card="crowding">
-          <header class="card-head">
-            <div>
-              <h3>Where speculators stand</h3>
-              <p class="muted small" id="crowding-sub">Their net position as a percentile of the three years before the end of the selected range. 100 is the most bullish in that time, 0 the most bearish.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
-          <div class="chart" id="chart-crowding"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-        <article class="card" data-card="positions">
-          <header class="card-head">
-            <div>
-              <h3 id="positions-title">Net position over time</h3>
-              <p class="muted small" id="positions-sub">Contracts long minus contracts short. Click a bar on the left to switch market.</p>
-            </div>
-            <div class="card-actions">
-              <label class="visually-hidden" for="positions-select">Choose a futures market</label>
-              <select id="positions-select"></select>
-              <button type="button" class="ghost small table-toggle">Table</button>
-            </div>
-          </header>
+        <div class="panel" data-panel="cash" data-card="bd-cash" role="tabpanel">
+          <p class="muted small tab-lede">Money that leaves risk assets mostly parks here.</p>
+          <div class="bd-table" id="bd-cash"></div>
+          <h3 class="bd-detail-title" id="bd-cash-title"></h3>
+          <div class="chart" id="chart-bd-cash"></div>
+        </div>
+        <div class="panel" data-panel="rates" data-card="bd-rates" role="tabpanel" hidden>
+          <p class="muted small tab-lede">What cash and borrowing cost, and how nervous lenders are.</p>
+          <div class="bd-table" id="bd-rates"></div>
+          <h3 class="bd-detail-title" id="bd-rates-title"></h3>
+          <div class="chart" id="chart-bd-rates"></div>
+        </div>
+        <div class="panel" data-panel="positioning" data-card="bd-positioning" role="tabpanel" hidden>
+          <p class="muted small tab-lede" id="positioning-sub">Speculators' net futures position as a percentile of the last three years (CFTC, weekly). Near 0 or 100 is crowded and can unwind fast.</p>
+          <div class="bd-table" id="bd-positioning"></div>
+          <h3 class="bd-detail-title" id="positions-title"></h3>
+          <p class="muted small" id="positions-sub"></p>
           <div class="chart" id="chart-positions"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-      </div>
-    </section>
-
-    <section id="cash" class="section">
-      <div class="section-head">
-        <div>
-          <h2>Dry powder: where the cash sits</h2>
-          <p class="muted" id="cash-sub">Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&amp;P 500 selloffs.</p>
         </div>
-      </div>
-      <div class="grid multiples" id="cash-grid"></div>
-    </section>
-
-    <section id="rates" class="section">
-      <div class="section-head">
-        <div>
-          <h2>Rates and credit: the price of money</h2>
-          <p class="muted" id="rates-sub">What cash and borrowing cost, and how nervous lenders are. Higher yields pull money toward bonds and cash; wider credit spreads mean lenders want more to take risk. Shaded bands are S&amp;P 500 selloffs.</p>
-        </div>
-      </div>
-      <div class="grid multiples" id="rates-grid"></div>
-    </section>
-
-    <section id="risk" class="section">
-      <div class="section-head">
-        <div>
-          <h2>Risk appetite and relationships</h2>
-          <p class="muted">Is the market reaching for risk or running from it, and which assets still move with stocks?</p>
-        </div>
-      </div>
-      <div class="grid two">
-        <article class="card" data-card="regime">
-          <header class="card-head">
-            <div>
-              <h3>Risk appetite score</h3>
-              <p class="muted small">Average z-score of risk-seeking signals. Above +0.5 is risk-on, below −0.5 risk-off.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
-          <div class="chart" id="chart-regime"></div>
-          <div class="table-wrap" hidden></div>
+        <div class="panel" data-panel="risk" data-card="bd-risk" role="tabpanel" hidden>
+          <p class="muted small tab-lede">Is the market reaching for risk or running from it, and which assets still move with stocks?</p>
+          <div class="bd-table" id="bd-risk"></div>
+          <h3 class="bd-detail-title" id="bd-risk-title"></h3>
+          <div class="chart" id="chart-bd-risk"></div>
           <ul class="components" id="regime-components"></ul>
-        </article>
-        <article class="card" data-card="performance">
-          <header class="card-head">
-            <div>
-              <h3>Performance</h3>
-              <p class="muted small" id="performance-sub">One market per class, indexed to 100 at the start of the selected range.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
-          <div class="chart" id="chart-performance"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-        <article class="card span-2" data-card="correlation">
-          <header class="card-head">
-            <div>
-              <h3>Who still moves with stocks?</h3>
-              <p class="muted small">Rolling 60-day correlation of daily returns with the S&amp;P 500. Near −1 is a hedge, near +1 sells off alongside stocks.</p>
-            </div>
-            <button type="button" class="ghost small table-toggle">Table</button>
-          </header>
-          <div class="chart" id="chart-correlation"></div>
-          <div class="table-wrap" hidden></div>
-        </article>
-      </div>
+        </div>
+      </article>
     </section>
 
-    <section id="guide" class="section method">
-      <h2>How to read this</h2>
+    <details id="guide" class="section method">
+      <summary><h2>How to read this</h2><span class="muted small">Where the numbers come from and how to read each view</span></summary>
       <div class="grid two prose">
         <div>
           <h3>Money doesn't vanish in a selloff</h3>
@@ -395,23 +301,18 @@
             <li><strong>Fed net liquidity</strong>: Fed balance sheet minus TGA minus reverse repo, a popular gauge of liquidity available to markets.</li>
           </ul>
           <h3>Date range</h3>
-          <p>The range bar under the menu (1W to All, or Custom dates) applies to every chart, table and the
-            changes shown on the headline tiles. Ranges inside the last three years use daily data; longer ones use
-            monthly totals. The "Right now" summary and the outlook cards always describe the present and the full
-            history, whatever range is selected.</p>
+          <p>The range bar under the menu (1W to All, or Custom dates) applies to everything on the page,
+            including the summary at the top. Ranges inside the last three years use daily data; longer ones use
+            monthly totals. Selloff statistics always use the full history when the range holds no selloff.</p>
           <h3>Inflation-adjusted view</h3>
-          <p>Tick <em>Inflation-adjusted</em> to restate every dollar amount in today's dollars and every price
-            change as a real return, using the US consumer price index (CPI). CPI is monthly and published with
-            a lag of about a month, so short recent ranges barely change. Correlations and the risk score are
-            unaffected, and the "Right now" summary and the outlook stay in plain dollars.</p>
+          <p>Open the <em>⋯</em> menu next to the range and tick <em>Inflation-adjusted</em> to restate every
+            dollar amount in today's dollars and every price change as a real return, using the US consumer price
+            index (CPI). CPI is monthly and published with a lag of about a month, so short recent ranges barely
+            change. Correlations, rates and the risk score are unaffected.</p>
           <h3>History and replay</h3>
           <p>The history chart shows the same class-to-class flows week by week for three years, or month by
             month since 2017. Click any bar, pick a past selloff from the wheel's menu, or click a row in the
             selloff heatmap to replay that period in the wheel.</p>
-          <h3>Outlook</h3>
-          <p>The outlook cards summarise patterns: which markets held up or bounced back in past selloffs,
-            where money has kept flowing in or out, and where price and flow disagree. They describe history
-            and current flows. They are not forecasts or advice.</p>
           <h3>Selloffs</h3>
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
             confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and
@@ -423,8 +324,28 @@
           <p class="muted small" id="sources"></p>
         </div>
       </div>
-    </section>
+    </details>
   </main>
+
+  <dialog class="closeup-dialog" id="closeup-dialog" aria-labelledby="closeup-title">
+    <article class="card closeup" data-card="closeup" id="closeup">
+      <header class="card-head">
+        <div>
+          <h3 id="closeup-title">Market close-up</h3>
+          <p class="muted small">Price and flow for one market over the selected range.</p>
+        </div>
+        <div class="card-actions">
+          <label class="visually-hidden" for="closeup-select">Choose a market</label>
+          <select id="closeup-select" class="ghost small"></select>
+          <button type="button" class="ghost small table-toggle">Table</button>
+          <button type="button" class="ghost small" id="closeup-close" aria-label="Close" autofocus>Close</button>
+        </div>
+      </header>
+      <ul class="closeup-stats" id="closeup-stats"></ul>
+      <div class="chart" id="chart-closeup"></div>
+      <div class="table-wrap"></div>
+    </article>
+  </dialog>
 
   <footer class="wrap foot muted small">
     Not investment advice. Data can be delayed, revised or wrong.
