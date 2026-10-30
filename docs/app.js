@@ -444,6 +444,7 @@ const INFO = {
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
   flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only.",
+  pools: "Stocks: US corporate equities (Federal Reserve Financial Accounts, quarterly), carried month to month by the S&P 500. Bonds: marketable US Treasuries at market value (Dallas Fed) plus corporate bonds. Cash: the M2 money supply. Gold: all gold ever mined (World Gold Council estimate) times the gold price. Crypto: bitcoin and ether in circulation times their prices, plus stablecoins. US figures for stocks, bonds and cash; global for gold and crypto.",
   intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
 
@@ -915,6 +916,126 @@ function renderClasses(t) {
 // Bars grow from the centre line when they first appear (instant with reduced motion).
 function growBars(root) {
   requestAnimationFrame(() => root.querySelectorAll(".dbar .fill").forEach((f) => { f.style.width = f.dataset.width; }));
+}
+
+// ---------- where the money sits: holdings by class, stacked month by month ----------
+
+state.pools = { grain: "month", scale: "linear" };
+const POOL_NAMES = { "Gold & commodities": "Gold" };
+const poolName = (g) => POOL_NAMES[g] || g;
+// Diagonal stripes for the month or year still in progress.
+const STRIPES = { symbol: "rect", symbolSize: 1, dashArrayX: [1, 0], dashArrayY: [3, 3], rotation: Math.PI / 4, color: "rgba(0, 0, 0, 0.32)" };
+
+// Trillions read best rounded: $148T, $9.4T, $620B.
+function fmtPool(v) {
+  if (v == null) return "–";
+  if (v === 0) return "$0";
+  const a = Math.abs(v);
+  return a >= 9950 ? `$${(a / 1000).toFixed(0)}T` : a >= 999.5 ? `$${(a / 1000).toFixed(1)}T` : fmtUsdBn(a);
+}
+
+// The months (or year ends) to draw: the selected range, widened to at least a year
+// of months (or three years) because the data is monthly.
+function poolPeriods() {
+  const P = state.data.pools;
+  const year = state.pools.grain === "year";
+  let idx = P.dates.map((_, i) => i);
+  if (year) idx = idx.filter((i) => i === P.dates.length - 1 || P.dates[i + 1].slice(0, 4) !== P.dates[i].slice(0, 4));
+  const b = rangeBounds();
+  let shown = idx.filter((i) => P.dates[i] <= b.end && (year ? P.dates[i].slice(0, 4) >= b.start.slice(0, 4) : inRange(P.dates[i], b)));
+  const min = year ? 3 : 12;
+  const widened = shown.length < min;
+  if (widened) shown = idx.filter((i) => P.dates[i] <= b.end).slice(-min);
+  return { P, shown, widened, year };
+}
+
+function renderPools(t) {
+  const d = state.data;
+  if (!d.pools) {
+    $("#pools").hidden = true;
+    return;
+  }
+  const { P, shown, widened, year } = poolPeriods();
+  const { scale } = state.pools;
+  document.querySelectorAll("#pools-grain button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.grain === state.pools.grain)));
+  document.querySelectorAll("#pools-scale button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.scale === scale)));
+  const groups = Object.keys(P.values);
+  const lastIdx = P.dates.length - 1;
+  // Still in progress: the latest month if more trading days are to come, and the latest
+  // year until its December is complete.
+  const yearOpen = P.partial || P.dates[lastIdx].slice(5, 7) !== "12";
+  const partial = (i) => (year ? i === lastIdx && yearOpen : i === lastIdx && P.partial);
+  const val = (g, i) => (P.values[g][i] == null ? null : P.values[g][i] * deflator(P.dates[i]));
+  const totals = shown.map((i) => groups.reduce((acc, g) => acc + (val(g, i) || 0), 0));
+  const label = (i) => (year ? P.dates[i].slice(0, 4) : fmtMonth(P.dates[i]));
+
+  // Headline: the latest split, and how much the total has grown over the bars shown.
+  const li = shown[shown.length - 1];
+  const lt = totals[totals.length - 1];
+  const split = groups.map((g) => [g, val(g, li) || 0]).sort((x, z) => z[1] - x[1]);
+  const growth = totals.length > 1 && totals[0] > 0 ? lt / totals[0] - 1 : null;
+  $("#pools-headline").textContent = `About ${fmtPool(lt)} in ${label(li)}${partial(li) ? " so far" : ""}: ${listText(split.slice(0, 3).map(([g, v]) => `${poolName(g).toLowerCase()} ${Math.round((v / lt) * 100)}%`))}`;
+  $("#pools-sub").textContent = `${growth != null ? `${fmtPct(growth, 0)} since ${label(shown[0])}. ` : ""}${widened ? (year ? "Showing three years, since this chart is yearly. " : "Showing the last 12 months, since this chart is monthly. ") : ""}Estimates from public data; tap a bar for the split.${dollarsNote()}`;
+  $("#pools-sub").appendChild(infoButton("How these sizes are estimated", "pools"));
+
+  const c = chart("chart-pools");
+  const many = shown.length > 24;
+  const bottom = Math.max(1, Math.min(...shown.map((i) => val(groups[0], i)).filter((v) => v > 0)));
+  c.setOption({
+    grid: { left: 8, right: 8, top: 12, bottom: 24, containLabel: true },
+    tooltip: {
+      ...tooltipBase(t),
+      trigger: "axis",
+      axisPointer: { type: "shadow", shadowStyle: { color: t.wash } },
+      formatter: (ps) => {
+        const j = ps[0].dataIndex;
+        const i = shown[j];
+        const rows = groups.map((g) => [g, val(g, i) || 0]).sort((x, z) => z[1] - x[1]);
+        return `<div style="margin-bottom:6px">${esc(label(i))}${partial(i) ? " · in progress" : ""}</div>` +
+          rows.map(([g, v]) => row(poolName(g), `${fmtPool(v)} · ${Math.round((v / totals[j]) * 100)}%`, groupColor(t, g))).join("") +
+          `<div style="border-top:1px solid ${t.grid};margin-top:6px;padding-top:6px">${row("Total", fmtPool(totals[j]))}</div>`;
+      },
+    },
+    xAxis: {
+      type: "category",
+      data: shown.map((i) => P.dates[i]),
+      ...axisStyle(t),
+      axisTick: { show: false },
+      axisLabel: {
+        color: t.muted, fontSize: 11, hideOverlap: true,
+        interval: year || !many ? 0 : (k, v) => v.slice(5, 7) === "01",
+        formatter: (v) => (year || many ? v.slice(0, 4) : fmtMonth(v).replace(/ (\d{2})(\d{2})$/, " ’$2")),
+      },
+    },
+    yAxis: scale === "share"
+      ? { type: "value", max: 100, interval: 25, ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => `${v}%` } }
+      : scale === "log"
+        // Doublings fitted to the data, so growth reads as steps up the axis.
+        // In trillions so the steps land on round numbers ($16T, $32T, $64T, ...).
+        ? { type: "log", logBase: 2, min: 2 ** Math.floor(Math.log2(bottom / 1000)), max: 2 ** Math.ceil(Math.log2(Math.max(...totals) / 1000)), ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPool(v * 1000) } }
+        : { type: "value", ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtPool } },
+    series: groups.map((g) => ({
+      name: poolName(g),
+      type: "bar",
+      stack: "all",
+      barCategoryGap: shown.length > 40 ? "10%" : "22%",
+      itemStyle: { color: groupColor(t, g) },
+      data: shown.map((i, j) => {
+        const v = val(g, i);
+        const y = v == null ? null : scale === "share" ? (v / totals[j]) * 100 : scale === "log" ? v / 1000 : v;
+        return partial(i) ? { value: y, itemStyle: { color: groupColor(t, g), decal: STRIPES } } : y;
+      }),
+    })),
+  }, true);
+  $("#pools-legend").replaceChildren(...groups.map((g) => {
+    const sp = document.createElement("span");
+    const key = document.createElement("i");
+    key.style.background = groupColor(t, g);
+    sp.append(key, document.createTextNode(poolName(g)));
+    return sp;
+  }));
+  table(cardTable("pools"), [year ? "Year" : "Month", ...groups.map(poolName), "Total"],
+    shown.map((i, j) => [label(i), ...groups.map((g) => fmtPool(val(g, i))), fmtPool(totals[j])]).reverse());
 }
 
 // ---------- money map: every fund as a tile, sized by assets, coloured by flow ----------
@@ -2255,6 +2376,7 @@ function renderAll() {
   safely("summary", renderNow);
   Object.values(state.tabs).forEach(renderTab);
   safely("liquidity history", renderHistory, t);
+  safely("where the money sits", renderPools, t);
   safely("selloff summary", renderSelloffStats);
   if (state.closeupOpen) safely("market close-up", renderCloseup, t);
 }
@@ -2338,6 +2460,8 @@ function writeHash() {
   if (state.tabs.flows !== TAB_DEFAULTS.flows) params.set("f", state.tabs.flows);
   if (state.tabs.selloffs !== TAB_DEFAULTS.selloffs) params.set("s", state.tabs.selloffs);
   if (state.tabs.backdrop !== TAB_DEFAULTS.backdrop) params.set("b", state.tabs.backdrop);
+  if (state.pools.grain !== "month") params.set("pg", state.pools.grain);
+  if (state.pools.scale !== "linear") params.set("ps", state.pools.scale);
   if (state.history.kind !== autoGrain()) params.set("hk", state.history.kind);
   if (state.history.mode !== "flows") params.set("hm", state.history.mode);
   history.replaceState(null, "", `#${params}`);
@@ -2362,6 +2486,8 @@ function readHash() {
     state.market = params.get("m");
     state.openCloseupOnLoad = true;
   }
+  if (["month", "year"].includes(params.get("pg"))) state.pools.grain = params.get("pg");
+  if (["linear", "log", "share"].includes(params.get("ps"))) state.pools.scale = params.get("ps");
   [["f", "flows"], ["s", "selloffs"], ["b", "backdrop"]].forEach(([key, group]) => {
     const tab = params.get(key);
     if (tab && TAB_RENDERERS[tab] && document.querySelector(`[data-tabs="${group}"] [data-tab="${tab}"]`)) state.tabs[group] = tab;
@@ -2460,6 +2586,16 @@ function wireControls() {
     state.closeupOpen = false;
     writeHash();
   });
+  document.querySelectorAll("#pools-grain button").forEach((btn) => btn.addEventListener("click", () => {
+    state.pools.grain = btn.dataset.grain;
+    writeHash();
+    safely("where the money sits", renderPools, theme());
+  }));
+  document.querySelectorAll("#pools-scale button").forEach((btn) => btn.addEventListener("click", () => {
+    state.pools.scale = btn.dataset.scale;
+    writeHash();
+    safely("where the money sits", renderPools, theme());
+  }));
   document.querySelectorAll('a[href="#guide"]').forEach((a) => a.addEventListener("click", () => { $("#guide").open = true; }));
 
   // The ⋯ menu sits outside the scrolling range bar so it is never clipped: place it under

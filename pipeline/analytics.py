@@ -439,6 +439,34 @@ def mmf_flows(assets_bn, bill_yield_pct):
     return (assets - prev - income).dropna()
 
 
+def knot_path(knots, dates):
+    """Piecewise-linear values through (date, value) knots, extended flat past both ends."""
+    x = pd.DatetimeIndex(dates).asi8
+    kx = pd.DatetimeIndex([k[0] for k in knots]).asi8
+    return pd.Series(np.interp(x, kx, [k[1] for k in knots]), index=pd.DatetimeIndex(dates))
+
+
+def anchored_monthly(anchor, price, dates):
+    """Values at `dates` from sparse anchors (quarterly totals, say) carried by a price.
+
+    Each date takes the latest anchor on or before it, scaled by how far the price has
+    moved since that anchor, so a quarterly market value becomes a monthly estimate and
+    the newest months are extended until the next official figure arrives.
+    """
+    anchor = anchor.dropna().sort_index()
+    price = price.dropna().sort_index()
+    out = []
+    for d in pd.DatetimeIndex(dates):
+        past = anchor[anchor.index <= d]
+        if past.empty:
+            out.append(np.nan)
+            continue
+        q, value = past.index[-1], past.iloc[-1]
+        pq, pd_ = price.asof(q), price.asof(d)
+        out.append(value * pd_ / pq if pq and pd_ and np.isfinite(pq) and np.isfinite(pd_) else value)
+    return pd.Series(out, index=pd.DatetimeIndex(dates), dtype="float64")
+
+
 def net_liquidity(fed_assets, tga, rrp):
     """Fed balance sheet minus TGA minus reverse repo, all in USD billions, weekly."""
     if fed_assets is None or tga is None or rrp is None:

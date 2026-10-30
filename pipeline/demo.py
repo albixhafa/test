@@ -157,6 +157,14 @@ def generate(start="2016-01-01", end=None, seed=7):
         index = pd.date_range(first, end, freq="W-FRI") if sid == "NFCI" else pd.bdate_range(first, end)
         macro[sid] = _smooth_path(index, knots, rng, 0.01)
 
+    quarters = pd.date_range(start, end, freq="QS")
+    macro["NCBEILQ027S"] = _smooth_path(quarters, [(start, 25.0e6), ("2020-01-01", 35e6), ("2020-04-01", 30e6),
+                                                   ("2021-10-01", 52e6), ("2022-10-01", 42e6), (end, 80e6)], rng, 0.01)
+    macro["BOGZ1LM793164105Q"] = _smooth_path(quarters, [(start, 6.0e6), ("2020-04-01", 6.5e6), (end, 26e6)], rng, 0.01)
+    macro["NCBDBIQ027S"] = _smooth_path(quarters, [(start, 6.0e6), ("2021-01-01", 7.6e6), (end, 9.2e6)], rng, 0.002)
+    macro["MVMTD027MNFRBDAL"] = _smooth_path(monthly, [(start, 13600), ("2020-06-01", 20500), ("2022-10-01", 22000),
+                                                       (end, 29800)], rng, 0.002)
+
     month_ends = pd.date_range(start, end, freq="ME")
     macro["MMF_TOTAL"] = _smooth_path(month_ends, [(start, 2750), ("2020-02-01", 3650), ("2020-05-01", 4800),
                                                    ("2022-06-01", 4600), ("2024-06-01", 6300), (end, 8300)], rng, 0.01)

@@ -110,6 +110,24 @@ RATES_SERIES = {
     "NFCI": {"name": "Financial conditions", "unit": "index"},
 }
 
+# "Where the money sits": public totals for each asset class (FRED ids -> unit scale to
+# USD billions). Quarterly Financial Accounts figures are carried month to month by prices.
+POOL_SERIES = {
+    "NCBEILQ027S": 1e-3,       # nonfinancial companies' shares, market value (quarterly, $m)
+    "BOGZ1LM793164105Q": 1e-3, # financial companies' shares, market value (quarterly, $m)
+    "MVMTD027MNFRBDAL": 1.0,   # marketable Treasury debt at market value (Dallas Fed, monthly, $bn)
+    "NCBDBIQ027S": 1e-3,       # nonfinancial companies' bonds and notes (quarterly, $m)
+}
+# Gold ever mined, in tonnes at year end (World Gold Council estimates), and the coins in
+# circulation for bitcoin (halving schedule) and ether; values in between are interpolated.
+GOLD_TONNES = [("2016-12-31", 187200), ("2017-12-31", 190040), ("2018-12-31", 193472), ("2019-12-31", 197576),
+               ("2020-12-31", 201296), ("2021-12-31", 205238), ("2022-12-31", 208874), ("2023-12-31", 212582),
+               ("2024-12-31", 216265), ("2028-12-31", 230700)]
+BTC_SUPPLY = [("2016-07-09", 15.75e6), ("2020-05-11", 18.375e6), ("2024-04-20", 19.6875e6), ("2028-04-15", 20.34375e6)]
+ETH_SUPPLY = [("2017-01-01", 86.6e6), ("2018-01-01", 97.1e6), ("2019-01-01", 104.4e6), ("2020-01-01", 109.4e6),
+              ("2021-01-01", 114.1e6), ("2022-01-01", 119.1e6), ("2022-09-15", 120.5e6), ("2024-01-01", 120.2e6),
+              ("2026-12-31", 120.7e6)]
+
 # Lookback windows (trading days) for the "where did the money go" view.
 FLOW_WINDOWS = [5, 20, 60]
 

@@ -238,6 +238,22 @@ def test_parse_ofr_timeseries_in_billions():
     assert s.tolist() == [8500.0, 8400.0]
 
 
+def test_anchored_monthly_carries_quarterly_values_by_price():
+    anchor = pd.Series([100.0, 200.0], index=pd.to_datetime(["2024-03-31", "2024-06-30"]))
+    price = pd.Series([10.0, 11.0, 12.0, 15.0, 9.0], index=pd.to_datetime(["2024-03-29", "2024-04-30", "2024-05-31", "2024-06-28", "2024-07-31"]))
+    dates = pd.to_datetime(["2024-02-29", "2024-04-30", "2024-05-31", "2024-07-31"])
+    out = an.anchored_monthly(anchor, price, dates)
+    assert np.isnan(out.iloc[0])  # before the first official figure
+    assert out.iloc[1] == pytest.approx(110.0)  # +10% since the March figure
+    assert out.iloc[2] == pytest.approx(120.0)
+    assert out.iloc[3] == pytest.approx(200.0 * 9.0 / 15.0)  # June figure carried by July's price
+
+
+def test_knot_path_interpolates_and_holds_ends():
+    out = an.knot_path([("2024-01-01", 0.0), ("2024-01-11", 10.0)], pd.to_datetime(["2023-12-01", "2024-01-06", "2024-02-01"]))
+    assert out.tolist() == [0.0, 5.0, 10.0]
+
+
 def test_parse_cftc_nets_long_minus_short():
     rows = [{"report_date_as_yyyy_mm_dd": "2026-10-20T00:00:00.000", "open_interest_all": "100",
              "lev_money_positions_long": "30", "lev_money_positions_short": "50",
@@ -258,6 +274,10 @@ def test_demo_build_produces_complete_dashboard():
         assert data["cash"][key]
     assert len(data["positioning"]) == 11 and set(data["rates"]) >= {"DTB3", "DGS10", "NFCI"}
     assert data["mmf_flows"] and data["cash"]["mmf_total"] and data["kpis"]["mmf_total_bn"]
+    pools = data["pools"]
+    assert list(pools["values"]) == ["Stocks", "Bonds", "Cash", "Gold & commodities", "Crypto"]
+    assert len(pools["dates"]) == len(pools["values"]["Stocks"]) and pools["dates"][0].startswith("2017-01")
+    assert all(v is None or v > 0 for vals in pools["values"].values() for v in vals)
     flows = {a["ticker"] for a in data["assets"] if a["flows"]}
     assert {"SPY", "GLD", "BIL", "STABLES"} <= flows and "QQQ" not in flows
     assert "STABLES" not in {r["ticker"] for r in data["selloffs"]["playbook"]}

@@ -30,6 +30,7 @@
     <div class="section-nav-inner">
       <a href="#now">Now</a>
       <a href="#flows">Flows</a>
+      <a href="#pools">Holdings</a>
       <a href="#selloffs">Selloffs</a>
       <a href="#backdrop">Backdrop</a>
       <a href="#guide">Guide</a>
@@ -157,6 +158,38 @@
       </article>
     </section>
 
+    <section id="pools" class="section">
+      <div class="section-head">
+        <div>
+          <h2>Where the money sits</h2>
+          <p class="muted" id="pools-lede">How much money is held in each asset class, month by month. Sizes are estimates from public data.</p>
+        </div>
+      </div>
+      <article class="card" data-card="pools" data-title="Where the money sits">
+        <header class="card-head">
+          <div>
+            <h3 id="pools-headline"></h3>
+            <p class="muted small" id="pools-sub"></p>
+          </div>
+          <div class="card-actions">
+            <div class="segmented compact" role="radiogroup" aria-label="Group by" id="pools-grain">
+              <button type="button" role="radio" data-grain="month">Month</button>
+              <button type="button" role="radio" data-grain="year">Year</button>
+            </div>
+            <div class="segmented compact" role="radiogroup" aria-label="Scale" id="pools-scale">
+              <button type="button" role="radio" data-scale="linear">Linear</button>
+              <button type="button" role="radio" data-scale="log">Log</button>
+              <button type="button" role="radio" data-scale="share">Share %</button>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </div>
+        </header>
+        <div class="chart tall" id="chart-pools"></div>
+        <div class="legend-row" id="pools-legend"></div>
+        <div class="table-wrap"></div>
+      </article>
+    </section>
+
     <section id="selloffs" class="section">
       <div class="section-head">
         <div>
@@ -263,6 +296,16 @@
             the last three years: the 99th percentile means only 1% of such windows saw bigger inflows. SPY is the
             fund traders use for hedging and quick moves, so its flows swing far more than those of buy-and-hold
             S&amp;P 500 funds; read it as tactical money.</p>
+          <h3>Where the money sits</h3>
+          <p>An estimate of how much money is held in each asset class at the end of each month. <em>Stocks</em>:
+            the market value of US corporate equities from the Federal Reserve's quarterly Financial Accounts,
+            carried between and after quarters by the S&amp;P 500. <em>Bonds</em>: the market value of marketable US
+            Treasury debt (Dallas Fed, monthly) plus corporate bonds (Financial Accounts). <em>Cash</em>: the M2
+            money supply (bank deposits, savings and retail money funds). <em>Gold</em>: the World Gold Council's
+            estimate of all gold ever mined, times the gold price. <em>Crypto</em>: bitcoin and ether in circulation
+            times their prices, plus dollar stablecoins. Stocks, bonds and cash are US figures while gold and crypto
+            are global, so read it as the big picture of where money is parked, not an exact count. The striped bar
+            is the month (or year) still in progress.</p>
           <h3>Positioning</h3>
           <p>The CFTC publishes, every Friday for the previous Tuesday, how many futures contracts each type of
             trader holds. For stock, bond, dollar and bitcoin futures the page shows <em>leveraged funds</em> (hedge
