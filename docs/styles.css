@@ -215,6 +215,17 @@ select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-w
   background: var(--banner); border: 1px solid var(--banner-border); font-size: 14px;
 }
 .card .chart#chart-history { height: 380px; }
+.closeup { margin-top: 12px; }
+.card .chart#chart-closeup { height: 420px; }
+.closeup-stats { list-style: none; padding: 0; margin: 4px 0 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.closeup-stats li { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.closeup-stats .k { display: block; font-size: 12px; color: var(--text-secondary); }
+.closeup-stats .v { display: block; font-size: 18px; font-weight: 600; }
+.closeup-stats .d { display: block; font-size: 12px; color: var(--text-secondary); }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20;
+  background: var(--text-primary); color: var(--surface); padding: 8px 14px; border-radius: 8px; font-size: 14px;
+}
 .grid.outlook { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1100px) { .grid.outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .grid.outlook { grid-template-columns: minmax(0, 1fr); } }

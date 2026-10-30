@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pages: write
   id-token: write
 
@@ -33,6 +34,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Keep the previous data for comparison
+        run: cp docs/data/dashboard.json "$RUNNER_TEMP/previous.json" || true
       - name: Build dashboard.json from live sources
         run: python -m pipeline.build
       - name: Commit refreshed data
@@ -45,6 +48,20 @@ jobs:
           else
             git commit -m "Refresh liquidity data"
             git push origin HEAD:${{ github.ref_name }}
+          fi
+      # Alerts only on the daily refresh (or a manual run), never for code changes, and only on the default branch.
+      - name: Open an issue for notable changes
+        if: github.ref_name == github.event.repository.default_branch && github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          python -m pipeline.alerts "$RUNNER_TEMP/previous.json" docs/data/dashboard.json > "$RUNNER_TEMP/alert.md"
+          if [ -s "$RUNNER_TEMP/alert.md" ]; then
+            tail -n +2 "$RUNNER_TEMP/alert.md" > "$RUNNER_TEMP/body.md"
+            gh issue create --title "$(head -n 1 "$RUNNER_TEMP/alert.md")" --body-file "$RUNNER_TEMP/body.md"
+          else
+            echo "Nothing new to alert on"
           fi
       # Pages only deploys from the default branch; other branches just refresh the data.
       # Stamp asset URLs with the commit so browsers never mix a new page with cached old code.
