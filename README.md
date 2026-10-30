@@ -11,11 +11,10 @@ funds, the Fed's reverse repo facility and the Treasury's cash account.
 
 ## What's on the page
 
-Five sections, each one card (most with tabs), so the page stays short:
+Four sections, each one card (most with tabs), so the page stays short:
 
 | Section | What it shows |
 |---|---|
-| **Now** | The answer in one sentence ("Money is leaving X and Y and going into A and B"), today's mood, S&P 500 drawdown and VIX, then **In**, **Out**, **Overall** (net new money and money market funds) and **Worth watching** (record-sized flows, crowded futures, nervous credit markets) for the selected range |
 | **Where money is flowing** | Tabs: **Classes** (money in and out of stocks, bonds, cash, gold & commodities and crypto as bars, with net new money on top; tap a class to open its funds; can show any past week, month or selloff), **Map** (every fund as a tile sized by its assets and coloured by its flow as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, **history** by day, week or month, as flows or running totals |
 | **Where the money sits** | Stacked bars of the market value held in stocks, real estate, bonds, cash, gold and crypto each month (or year) since 2017, with **Linear / Log / Share %** views, a tooltip that ranks the classes, and the period in progress striped. Sizes are estimates: Fed Financial Accounts for stocks (carried monthly by the S&P 500), households' real estate (carried by Case-Shiller) and corporate bonds, Dallas Fed Treasury market value, M2 plus companies' money funds for cash, World Gold Council tonnes times the gold price, coins in circulation times prices plus stablecoins for crypto |
 | **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to see its flows by class) |

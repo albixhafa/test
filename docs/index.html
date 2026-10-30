@@ -28,7 +28,6 @@
   <nav class="section-nav" aria-label="Sections">
     <div class="wrap nav-row">
     <div class="section-nav-inner">
-      <a href="#now">Now</a>
       <a href="#flows">Flows</a>
       <a href="#pools">Holdings</a>
       <a href="#selloffs">Selloffs</a>
@@ -61,13 +60,6 @@
       <code>python -m pipeline.build</code> or the <em>Refresh data</em> GitHub Action to load real market data.
     </div>
     <div id="warnings" class="banner warn" hidden></div>
-
-    <section id="now" class="now" aria-labelledby="now-headline">
-      <p class="eyebrow" id="now-span"></p>
-      <h2 id="now-headline"></h2>
-      <ul class="now-chips" id="now-chips"></ul>
-      <ul class="now-list" id="now-list"></ul>
-    </section>
 
     <section id="flows" class="section">
       <div class="section-head">
@@ -339,8 +331,8 @@
             <li><strong>Fed net liquidity</strong>: Fed balance sheet minus TGA minus reverse repo, a popular gauge of liquidity available to markets.</li>
           </ul>
           <h3>Date range</h3>
-          <p>The range bar under the menu (1W to All, or Custom dates) applies to everything on the page,
-            including the summary at the top. Ranges inside the last three years use daily data; longer ones use
+          <p>The range bar under the menu (1W to All, or Custom dates) applies to everything on the page.
+            Ranges inside the last three years use daily data; longer ones use
             monthly totals. Selloff statistics always use the full history when the range holds no selloff.</p>
           <h3>Inflation-adjusted view</h3>
           <p>Open the <em>⋯</em> menu next to the range and tick <em>Inflation-adjusted</em> to restate every
