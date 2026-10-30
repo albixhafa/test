@@ -11,8 +11,11 @@ Treasury's cash account.
 
 | Panel | Question it answers |
 |---|---|
-| Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? |
-| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the dollar, with the total in the middle |
+| Right now | The page in five plain sentences: selloff or not, mood, where money went, cash on the sidelines, what to watch |
+| Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? (each with an ⓘ explanation) |
+| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the dollar, with the total in the middle; can replay any past week, month or selloff |
+| Liquidity history | Net flows per class week by week (3 years) or month by month (since 2017), as bars or running totals |
+| Outlook | Selloffs in perspective, which markets held up and bounced back in past selloffs, 8-week flow momentum, price/flow divergences, dry powder |
 | Rotation map (Sankey) | Over the last week, month or quarter, which markets saw net selling and where did that pressure go? |
 | Buying vs selling pressure | Net flow per market as a share of its normal turnover |
 | Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
@@ -29,7 +32,8 @@ Every share sold has a buyer, so a selloff doesn't drain a fixed pot of money. W
 changes is who holds what. True fund flows (ETF creations and redemptions, money fund
 subscriptions) mostly sit behind paid data, so this dashboard estimates flow pressure
 with Chaikin money flow (each day's dollar volume, signed by where the close landed in the
-day's range). The rotation map splits each net outflow across net inflows in proportion to
+day's range), measured against each market's own trailing one-year average so only unusual
+buying or selling counts. The rotation map splits each net outflow across net inflows in proportion to
 size and routes any imbalance through a *Cash & sidelines* node. The liquidity wheel does the
 same at the asset-class level, with cash as the balancing account. Read both as pressure, not
 as a ledger of who bought from whom.
