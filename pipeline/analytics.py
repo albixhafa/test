@@ -130,6 +130,57 @@ def class_flows(asset_net, asset_group, groups, cash_group):
     }
 
 
+def periodic_class_flows(flow, asset_group, groups, cash_group, freq, periods=None):
+    """Class-to-class flows for each calendar period (weekly, monthly) of daily asset flows.
+
+    `flow` holds daily estimated flows in USD (columns = tickers). Each period is labelled
+    by its first and last trading day, so a week still in progress ends on the latest day.
+    Returns a compact dict: parallel lists of start/end dates, net per class, total moved,
+    and links as [source index, target index, USD billions] triples.
+    """
+    days = flow.index.to_series()
+    sums = flow.resample(freq).sum() / 1e9
+    first = days.resample(freq).min()
+    last = days.resample(freq).max()
+    keep = last.notna()
+    sums, first, last = sums[keep], first[keep], last[keep]
+    if periods:
+        sums, first, last = sums.iloc[-periods:], first.iloc[-periods:], last.iloc[-periods:]
+    index = {g: i for i, g in enumerate(groups)}
+    out = {"start": [], "end": [], "net": {g: [] for g in groups}, "total": [], "links": []}
+    for (label, row), a, b in zip(sums.iterrows(), first, last):
+        wheel = class_flows(row.to_dict(), asset_group, groups, cash_group)
+        out["start"].append(a.strftime("%Y-%m-%d"))
+        out["end"].append(b.strftime("%Y-%m-%d"))
+        for g in groups:
+            out["net"][g].append(round(wheel["net"][g], 3))
+        out["total"].append(round(wheel["total_bn"], 3))
+        out["links"].append([[index[l["source"]], index[l["target"]], round(l["value"], 3)] for l in wheel["links"]])
+    return out
+
+
+def flow_streaks(weekly_net, lookback=8):
+    """Persistence of flows over the last `lookback` weeks for each column.
+
+    Returns inflow week count, total, and the change between the most recent half of
+    the window and the half before it (positive = buying is accelerating).
+    """
+    out = {}
+    half = lookback // 2
+    for col in weekly_net.columns:
+        s = weekly_net[col].dropna().iloc[-lookback:]
+        if len(s) < lookback:
+            continue
+        out[col] = {
+            "inflow_weeks": int((s > 0).sum()),
+            "weeks": int(len(s)),
+            "total_bn": _num(s.sum(), 3),
+            "recent_bn": _num(s.iloc[-half:].sum(), 3),
+            "prior_bn": _num(s.iloc[:-half].sum(), 3),
+        }
+    return out
+
+
 def find_selloffs(close, threshold):
     """Zig-zag swing detection: peak-to-trough falls of at least `threshold`.
 
