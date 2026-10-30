@@ -52,3 +52,15 @@ def test_big_week_only_on_week_rollover():
     assert [e[0] for e in events] == ["big-week"]
     assert "left Stocks" in events[0][2]
     assert detect_events(cur, copy.deepcopy(cur)) == []
+
+
+def test_crowded_positioning_fires_on_crossing_only():
+    prev, cur = base(), base()
+    pos = {"key": "gold", "name": "Gold futures", "who": "Managed money", "percentile": 90.0}
+    prev["positioning"] = [dict(pos)]
+    cur["positioning"] = [dict(pos, percentile=97.0)]
+    events = detect_events(prev, cur)
+    assert [e[0] for e in events] == ["positioning"]
+    assert "longest" in events[0][1]
+    assert detect_events(cur, cur) == []  # already crowded yesterday
+    assert detect_events(base(), cur) == []  # no previous reading to compare with

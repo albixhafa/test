@@ -1,9 +1,10 @@
 "use strict";
 
 const state = { data: null, charts: {}, assets: {}, groupIndex: {} };
-const CASH_NODE = "Cash & sidelines";
+// Money entering the tracked funds from outside, or leaving them altogether.
+const SIDELINES = "Sidelines";
 // One market per class for the performance chart.
-const REPRESENTATIVES = ["SPY", "TLT", "BIL", "GLD", "BTC-USD", "UUP"];
+const REPRESENTATIVES = ["SPY", "SPTL", "UUP", "GLD", "BTC-USD"];
 
 // ---------- helpers ----------
 
@@ -95,14 +96,27 @@ function fmtNum(x, digits = 2, signed = false) {
 }
 
 function assetName(ticker) {
-  if (ticker === CASH_NODE) return CASH_NODE;
+  if (ticker === SIDELINES) return SIDELINES;
   return state.assets[ticker] ? state.assets[ticker].name : ticker;
 }
 
+function groupColor(t, g) {
+  return g === SIDELINES ? t.cash : t.groups[(state.groupIndex[g] ?? 0) % t.groups.length];
+}
+
 function assetColor(ticker, t) {
-  if (ticker === CASH_NODE) return t.cash;
+  if (ticker === SIDELINES) return t.cash;
   const a = state.assets[ticker];
-  return a ? t.groups[state.groupIndex[a.group] % t.groups.length] : t.muted;
+  return a ? groupColor(t, a.group) : t.muted;
+}
+
+// Markets with real flow data, and markets with a real price (stablecoins have only supply).
+function flowTickers() {
+  return state.data.assets.filter((a) => a.flows).map((a) => a.ticker);
+}
+
+function pricedAssets() {
+  return state.data.assets.filter((a) => a.ticker !== "STABLES");
 }
 
 function tooltipBase(t) {
@@ -240,14 +254,6 @@ function rangeTileSpan() {
   return state.range.preset === "custom" ? `over ${rangeShort()}` : rangeSpan();
 }
 
-// Over long ranges, flows measured against each market's trailing-year normal mostly
-// show whether buying ran faster or slower than the year before. Say so on screen.
-function longRangeNote(start, end) {
-  return (parseDay(end) - parseDay(start)) / 864e5 > 200
-    ? " Over a range this long, totals mostly show whether buying ran above or below each market's pace in the year before."
-    : "";
-}
-
 function rangeDays(b = rangeBounds()) {
   return (parseDay(b.end) - parseDay(b.start < "2016-01-01" ? "2016-01-01" : b.start)) / 864e5;
 }
@@ -307,8 +313,9 @@ function dollarsNote() {
   return state.real && c ? ` Inflation-adjusted to ${fmtMonth(c[0])} dollars.` : "";
 }
 
-// Sum flows and dollar volume and measure the price change for every market over the
-// range. Uses daily rows when the range fits in the last three years, monthly otherwise.
+// Sum flows and measure the price change for every market over the range; flow as a
+// share of fund size uses the size at the start. Uses daily rows when the range fits in
+// the last three years, monthly otherwise.
 function aggregate(b = rangeBounds()) {
   const key = `${b.start}|${b.end}|${b.inclusive ? 1 : 0}|${state.real ? 1 : 0}`;
   if (state.aggCache && state.aggCache.key === key) return state.aggCache.value;
@@ -330,10 +337,13 @@ function aggregate(b = rangeBounds()) {
     const last = rows[rows.length - 1];
     const dates = daily ? D.dates : src.end;
     const k = rows.map((i) => deflator(dates[i]));
-    Object.keys(src.flow).forEach((t) => {
+    Object.keys(src.close).forEach((t) => {
       const sum = (arr) => rows.reduce((acc, i, j) => acc + (arr[i] || 0) * k[j], 0);
-      const net = sum(src.flow[t]);
-      const dv = sum(src.dv[t]);
+      const flows = src.flow[t];
+      const hasFlow = flows && rows.some((i) => flows[i] != null);
+      const net = hasFlow ? sum(flows) : null;
+      const sizes = src.aum[t];
+      const size = hasFlow ? rows.map((i) => sizes[i]).find((v) => v != null) : null;
       const closes = src.close[t];
       let before = first > 0 ? realPrice(closes[first - 1], dates[first - 1]) : null;
       if (before == null) {
@@ -341,18 +351,11 @@ function aggregate(b = rangeBounds()) {
         before = j >= 0 ? realPrice(closes[first + j], dates[first + j]) : null;
       }
       const after = realPrice(closes[last], dates[last]);
-      let volumeRatio = null;
-      if (daily && first >= rows.length) {
-        const prior = src.dv[t].slice(first - rows.length, first);
-        const priorMean = prior.reduce((a, v) => a + (v || 0), 0) / prior.length;
-        if (priorMean > 0) volumeRatio = dv / rows.length / priorMean;
-      }
       assets[t] = {
         net_flow_bn: net,
-        dv_bn: dv,
+        aum_bn: size == null ? null : size * k[0],
         ret: before && after ? after / before - 1 : null,
-        intensity: dv > 0 ? net / dv : null,
-        volume_ratio: volumeRatio,
+        intensity: net != null && size > 0 ? net / (size * k[0]) : null,
       };
     });
   }
@@ -368,7 +371,7 @@ function aggregate(b = rangeBounds()) {
 }
 
 // Port of pipeline/analytics.py allocate_flows: split each net outflow across net
-// inflows in proportion to size; any imbalance goes to or from the cash node.
+// inflows in proportion to size; any imbalance goes to or from the sidelines.
 function allocateFlows(net, minShare = 0.002) {
   const sources = Object.entries(net).filter(([, v]) => v != null && v < 0).map(([k, v]) => [k, -v]);
   const sinks = Object.entries(net).filter(([, v]) => v != null && v > 0);
@@ -379,24 +382,24 @@ function allocateFlows(net, minShare = 0.002) {
     const matched = Math.min(totalOut, totalIn);
     sources.forEach(([s, out]) => sinks.forEach(([d, inn]) => links.push({ source: s, target: d, value: matched * (out / totalOut) * (inn / totalIn) })));
   }
-  if (totalOut > totalIn) sources.forEach(([s, out]) => links.push({ source: s, target: CASH_NODE, value: (totalOut - totalIn) * out / totalOut }));
-  else if (totalIn > totalOut) sinks.forEach(([d, inn]) => links.push({ source: CASH_NODE, target: d, value: (totalIn - totalOut) * inn / totalIn }));
+  if (totalOut > totalIn) sources.forEach(([s, out]) => links.push({ source: s, target: SIDELINES, value: (totalOut - totalIn) * out / totalOut }));
+  else if (totalIn > totalOut) sinks.forEach(([d, inn]) => links.push({ source: SIDELINES, target: d, value: (totalIn - totalOut) * inn / totalIn }));
   const scale = Math.max(totalOut, totalIn, 1e-12);
   links = links.filter((l) => l.value / scale >= minShare);
   return { links, total_out_bn: totalOut, total_in_bn: totalIn };
 }
 
-// Port of class_flows: net within each class, cash balances the rest.
+// Port of class_flows: net within each class; the sidelines balance the rest.
 function classFlows(assetNets) {
   const groups = state.data.groups;
   const net = Object.fromEntries(groups.map((g) => [g, 0]));
   Object.entries(assetNets).forEach(([t, v]) => {
     const a = state.assets[t];
-    if (v == null || !a || a.group === "Cash") return;
+    if (v == null || !isFinite(v) || !a || a.group === SIDELINES) return;
     net[a.group] += v;
   });
-  net.Cash = -groups.filter((g) => g !== "Cash").reduce((acc, g) => acc + net[g], 0);
-  const links = allocateFlows(net).links.filter((l) => l.source !== CASH_NODE && l.target !== CASH_NODE);
+  net[SIDELINES] = -groups.filter((g) => g !== SIDELINES).reduce((acc, g) => acc + net[g], 0);
+  const links = allocateFlows(net).links;
   return { net, links, total_bn: links.reduce((a, l) => a + l.value, 0) };
 }
 
@@ -412,8 +415,9 @@ const INFO = {
   net_liquidity: "The Federal Reserve's balance sheet minus the Treasury's cash account and the reverse repo facility. A rough gauge of cash available to markets; when it rises, asset prices tend to get support.",
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
-  flows: "Estimated from each day's price and trading volume, and measured against each market's own normal over the past year, so only unusual buying or selling counts. Flows are pressure, not price: a market can rise while money leaves it, if the remaining buyers pay up. Not reported fund flows.",
-  cash: "Cash balances the wheel: if more was sold than bought across the tracked markets, the difference is shown flowing into cash, and if more was bought, it is shown coming out of cash.",
+  flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only.",
+  sidelines: "The sidelines balance the wheel: money that came into the tracked funds from outside (bank deposits, other funds) is shown leaving the sidelines, and money that left them altogether is shown going to the sidelines.",
+  intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
 
 function showInfo(title, text, x, y) {
@@ -493,6 +497,24 @@ function renderNow() {
   items.push([`Mood: ${d.regime.label}. `, `${REGIME_TEXT[d.regime.label] || ""} (score ${fmtNum(d.regime.score, 2, true)}).`]);
   const month = { wheel: d.windows["20"].wheel, span: "over the past month" };
   items.push(["Money flow: ", `${wheelHeadline(month)}.`]);
+  const crowded = (d.positioning || []).map((p) => ({ p, c: crowding(p, { end: d.meta.as_of }) }))
+    .filter((r) => r.c && (r.c.pct >= 85 || r.c.pct <= 15))
+    .sort((a, z) => Math.abs(z.c.pct - 50) - Math.abs(a.c.pct - 50));
+  if (crowded.length) {
+    items.push(["Crowded trades: ", `speculators are ${crowded.slice(0, 3).map((r) => `${r.c.pct >= 85 ? "near their longest" : "near their shortest"} in ${r.p.name.replace(" futures", "").replace(/^Long Treasury bond$/, "long Treasury bonds")} (${ordinal(r.c.pct)} percentile)`).join("; ")}. Crowded trades can unwind fast.`]);
+  }
+  const rate = (k) => {
+    const pts = d.rates && d.rates[k] && d.rates[k].points;
+    if (!pts || pts.length < 5) return null;
+    const last = pts[pts.length - 1];
+    const ago = pts.filter((x) => x[0] <= shiftDate(last[0], -28)).pop();
+    return { v: last[1], chg: ago ? last[1] - ago[1] : null };
+  };
+  const y10 = rate("DGS10");
+  const hy = rate("BAMLH0A0HYM2");
+  if (y10) {
+    items.push(["Rates and credit: ", `the 10-year Treasury yields ${fmtRate(y10.v, "pct")} (${fmtRateChange(y10.chg, "pct")} in a month)${hy ? `, and junk bonds pay ${fmtRate(hy.v, "pct")} over Treasuries (${fmtRateChange(hy.chg, "pct")}${hy.chg > 0.25 ? ", lenders getting nervous" : hy.chg < -0.25 ? ", lenders relaxed" : ""})` : ""}.`]);
+  }
   const mmf = d.cash.retail_mmf;
   if (mmf && mmf.length > 12) {
     const now = mmf[mmf.length - 1][1];
@@ -531,8 +553,9 @@ function renderKpis() {
   const agg = aggregate().assets;
   // Latest level, with the change over the selected range underneath.
   const cashTile = (key, label) => {
-    const [value, change] = d.cash[key] ? changeOverRange(realPoints(d.cash[key])) : [null, null];
-    return { info: key, label, value: fmtUsdBn(value), delta: change == null ? "No new data in range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}` };
+    const pts = d.cash[key] ? realPoints(d.cash[key]) : null;
+    const [value] = pts ? changeOverRange(pts) : [null];
+    return { info: key, label, value: fmtUsdBn(value), delta: pts ? cashDelta(pts) : "No data" };
   };
   const r = d.regime;
   const pos = Math.max(-2, Math.min(2, r.score ?? 0));
@@ -622,13 +645,19 @@ function hideTip() {
   $("#tip").hidden = true;
 }
 
+// "the sidelines" reads naturally in a sentence; class names stay as they are.
+function className(g) {
+  return g === SIDELINES ? "the sidelines" : g;
+}
+
 function wheelHeadline(view) {
   const wheel = view.wheel;
   const entries = Object.entries(wheel.net).sort((a, b) => a[1] - b[1]);
   const [source, out] = entries[0];
   if (!wheel.links.length || out >= 0) return `Little money changed hands between classes ${view.span}`;
   const dests = wheel.links.filter((l) => l.source === source).sort((a, b) => b.value - a.value).slice(0, 2);
-  const where = dests.map((l) => `${l.target} (${fmtUsdBn(l.value)})`).join(" and ");
+  const where = dests.map((l) => `${className(l.target)} (${fmtUsdBn(l.value)})`).join(" and ");
+  if (source === SIDELINES) return `${fmtUsdBn(-out)} of new money came in ${view.span}, mostly into ${where}`;
   return `${fmtUsdBn(-out)} left ${source} ${view.span}, mostly into ${where}`;
 }
 
@@ -848,15 +877,15 @@ function renderWheel(t) {
   const wheel = view.wheel;
   const groups = state.data.groups;
   const idx = Object.fromEntries(groups.map((g, i) => [g, i]));
-  const color = (g) => t.groups[idx[g] % t.groups.length];
+  const color = (g) => groupColor(t, g);
   const matrix = groups.map(() => groups.map(() => 0));
   wheel.links.forEach((l) => { matrix[idx[l.source]][idx[l.target]] += l.value; });
   const outOf = (i) => d3.sum(matrix[i]);
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
   $("#wheel-headline").textContent = wheelHeadline(view);
-  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.${state.replay ? "" : longRangeNote(view.start, view.end)}${dollarsNote()}`;
-  $("#wheel-sub").appendChild(infoButton("estimated flows", "flows"));
+  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Real money into and out of State Street funds and stablecoins.${dollarsNote()}`;
+  $("#wheel-sub").appendChild(infoButton("Where the flows come from", "flows"));
 
   // Side list: net per class, biggest inflow first.
   const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
@@ -928,7 +957,7 @@ function renderWheel(t) {
     .attr("stroke-width", 1)
     .on("pointermove pointerdown", (ev, d) => {
       highlightRibbon(d);
-      showTip(`${groups[d.source.index]} → ${groups[d.target.index]}`, [["Estimated flow", fmtUsdBn(d.source.value)]], ev.clientX, ev.clientY);
+      showTip(`${groups[d.source.index]} → ${groups[d.target.index]}`, [["Flow", fmtUsdBn(d.source.value)]], ev.clientX, ev.clientY);
     })
     .on("pointerleave", leave);
 
@@ -982,12 +1011,12 @@ function renderWheel(t) {
       if (matrix[d.index][j] > 0) rows.push([`→ ${other}`, fmtUsdBn(matrix[d.index][j])]);
       if (matrix[j][d.index] > 0) rows.push([`← ${other}`, fmtUsdBn(matrix[j][d.index])]);
     });
-    // Which markets inside the class drove it (cash itself is the balancing account).
-    if (view.marketNets && g !== "Cash") {
+    // Which markets inside the class drove it (the sidelines hold no markets).
+    if (view.marketNets && g !== SIDELINES) {
       const movers = state.data.assets.filter((a) => a.group === g && view.marketNets[a.ticker] != null)
         .map((a) => [a.ticker, view.marketNets[a.ticker]])
         .sort((p, q) => Math.abs(q[1]) - Math.abs(p[1])).slice(0, 4);
-      if (movers.length > 1) movers.forEach(([tk, v], k) => rows.push([`${k ? "" : "Driven by: "}${shortName(tk)}`, fmtUsdBn(v, true)]));
+      if (movers.length) movers.forEach(([tk, v], k) => rows.push([`${k ? "" : "Driven by: "}${shortName(tk)}`, fmtUsdBn(v, true)]));
     }
     showTip(g, rows, x, y);
   };
@@ -1105,7 +1134,7 @@ function renderSankey(t) {
   const w = aggregate();
   const sk = allocateFlows(Object.fromEntries(Object.entries(w.assets).map(([k, a]) => [k, a.net_flow_bn])));
   $("#sankey-sub").textContent =
-    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.${longRangeNote(w.start, w.end)}${dollarsNote()}`;
+    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} pulled out of funds, ${fmtUsdBn(sk.total_in_bn)} put in.${dollarsNote()}`;
   const ids = new Set();
   sk.links.forEach((l) => { ids.add(l.source); ids.add(l.target); });
   const nodeTotals = {};
@@ -1154,7 +1183,7 @@ function renderSankey(t) {
           fontSize: narrow ? 11 : 12,
           width: narrow ? 84 : undefined,
           overflow: "truncate",
-          formatter: (p) => (narrow ? assetName(p.name) : `${assetName(p.name)}  {v|${fmtUsdBn(nodeTotals[p.name])}}`),
+          formatter: (p) => (narrow ? shortName(p.name) : `${shortName(p.name)}  {v|${fmtUsdBn(nodeTotals[p.name])}}`),
           rich: { v: { color: t.text2, fontSize: 11 } },
         },
         labelLayout: { hideOverlap: true },
@@ -1166,7 +1195,7 @@ function renderSankey(t) {
     }, true);
   }
   c.off("click");
-  c.on("click", (p) => { if (p.dataType === "node" && p.name !== CASH_NODE) openCloseup(p.name); });
+  c.on("click", (p) => { if (p.dataType === "node" && p.name !== SIDELINES) openCloseup(p.name); });
   table(cardTable("sankey"), ["From", "To", "Allocated flow"],
     sk.links.slice().sort((a, b) => b.value - a.value)
       .map((l) => [assetName(l.source), assetName(l.target), fmtUsdBn(l.value)]));
@@ -1181,12 +1210,16 @@ function barValueAxis(t, values) {
   const raw = (hi - lo) / target || 0.01;
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= raw);
+  // Room for the value labels, with both ends on a tick so every label is a round number.
+  const pad = (hi - lo) * 0.12;
+  const digits = Math.abs(Math.round(step * 100) - step * 100) > 1e-9 ? 1 : 0;
   return {
     type: "value",
-    boundaryGap: ["12%", "12%"],
+    min: lo < 0 ? Math.floor((lo - pad) / step) * step : 0,
+    max: hi > 0 ? Math.ceil((hi + pad) / step) * step : 0,
     interval: step,
     ...axisStyle(t),
-    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, 0) },
+    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, digits) },
   };
 }
 
@@ -1220,7 +1253,7 @@ function renderIntensity(t) {
     .filter(([, v]) => v.intensity != null)
     .sort((a, b) => a[1].intensity - b[1].intensity);
   const vals = rows.map(([, v]) => v.intensity);
-  const intensityLabel = barLabel(t, vals, 0);
+  const intensityLabel = barLabel(t, vals, 1);
   const c = chart("chart-intensity");
   c.setOption({
     grid: barGrid(),
@@ -1230,10 +1263,10 @@ function renderIntensity(t) {
       formatter: (p) => {
         const v = w.assets[rows[p.dataIndex][0]];
         return `<div style="margin-bottom:4px">${esc(assetName(rows[p.dataIndex][0]))}</div>` +
-          row("Net pressure (share of trading)", fmtPct(v.intensity)) +
-          row("Est. net flow", fmtUsdBn(v.net_flow_bn, true)) +
-          row("Return", fmtPct(v.ret)) +
-          row("Volume vs normal", `${fmtNum(v.volume_ratio, 2)}×`);
+          row("Net flow, share of fund", fmtPct(v.intensity)) +
+          row("Net flow", fmtUsdBn(v.net_flow_bn, true)) +
+          row("Fund size at start", fmtUsdBn(v.aum_bn)) +
+          row("Return", fmtPct(v.ret));
       },
     },
     xAxis: barValueAxis(t, vals),
@@ -1259,9 +1292,9 @@ function renderIntensity(t) {
   }, true);
   c.off("click");
   c.on("click", (p) => openCloseup(rows[p.dataIndex][0]));
-  table(cardTable("intensity"), ["Market", "Net pressure", "Est. net flow", "Return", "Volume vs normal"],
+  table(cardTable("intensity"), ["Market", "Share of fund", "Net flow", "Fund size", "Return"],
     rows.slice().reverse().map(([k, v]) => [
-      assetName(k), fmtPct(v.intensity), fmtUsdBn(v.net_flow_bn, true), fmtPct(v.ret), `${fmtNum(v.volume_ratio, 2)}×`,
+      assetName(k), fmtPct(v.intensity), fmtUsdBn(v.net_flow_bn, true), fmtUsdBn(v.aum_bn), fmtPct(v.ret),
     ]));
 }
 
@@ -1320,7 +1353,7 @@ function renderHistory(t) {
   const { kind, mode } = state.history;
   const h = historyData(kind);
   const groups = state.data.groups;
-  const color = (g) => t.groups[state.groupIndex[g] % t.groups.length];
+  const color = (g) => groupColor(t, g);
   document.querySelectorAll("#history-kind button").forEach((b) => {
     b.setAttribute("aria-checked", String(b.dataset.kind === kind));
     b.disabled = !grainAvailable(b.dataset.kind);
@@ -1336,19 +1369,39 @@ function renderHistory(t) {
     return;
   }
   const totals = Object.fromEntries(groups.map((g) => [g, d3.sum(h.net[g])]));
-  const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const ranked = Object.entries(totals).filter(([g]) => g !== SIDELINES).sort((a, b) => b[1] - a[1]);
   const [topIn, topOut] = [ranked[0], ranked[ranked.length - 1]];
   const span = fmtRange(h.start[0], h.end[h.end.length - 1]);
   const lead = state.range.preset === "ALL" ? `Since ${fmtMonth(h.start[0])}` : capitalise(rangeSpan());
-  $("#history-headline").textContent =
-    `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})`;
+  // The sidelines' total is the net new money: negative means money came in from outside.
+  const fresh = -(totals[SIDELINES] || 0);
+  const net = Math.abs(fresh) < 0.05 ? "" : fresh > 0 ? `; ${fmtUsdBn(fresh)} of new money came in overall` : `; ${fmtUsdBn(-fresh)} left the tracked funds overall`;
+  $("#history-headline").textContent = topIn[1] > 0 && topOut[1] < 0
+    ? `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})${net}`
+    : `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)})${net}`;
   const unit = { daily: "day", weekly: "week", monthly: "month" }[kind];
   $("#history-sub").textContent = mode === "flows"
     ? `Net flow per ${unit}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.${dollarsNote()}`
     : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
 
   const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v)); };
+  // The sidelines would only mirror every other bar, so they show as one line instead:
+  // net new money into the tracked funds (their balance with the sign flipped).
+  const NEW_MONEY = "Net new money";
   const series = groups.map((g, gi) => {
+    if (g === SIDELINES) {
+      const fresh = h.net[g].map((v) => -v);
+      const values = mode === "flows" ? fresh : running(fresh);
+      return {
+        name: NEW_MONEY, type: "line", z: 5, showSymbol: mode === "flows" && h.end.length <= 60, symbolSize: 4,
+        data: h.end.map((d, i) => [d, Math.round(values[i] * 100) / 100]),
+        lineStyle: { width: 1.5, color: t.text2, type: mode === "flows" ? "dashed" : "solid" },
+        itemStyle: { color: t.text2 },
+        emphasis: { focus: "series" },
+        endLabel: mode === "flows" ? undefined : { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 },
+        labelLayout: { moveOverlap: "shiftY" },
+      };
+    }
     const values = mode === "flows" ? h.net[g] : running(h.net[g]);
     const base = {
       name: g,
@@ -1400,8 +1453,10 @@ function renderHistory(t) {
     replay(historyView(kind, h.idx[best]));
   });
 
-  table(cardTable("history"), ["Period", ...groups, "Total moved"],
-    h.end.map((d, i) => [fmtRange(h.start[i], d), ...groups.map((g) => fmtUsdBn(h.net[g][i], true)), fmtUsdBn(h.total[i])]).reverse());
+  const classes = groups.filter((g) => g !== SIDELINES);
+  table(cardTable("history"), ["Period", ...classes, "Net new money", "Total moved"],
+    h.end.map((d, i) => [fmtRange(h.start[i], d), ...classes.map((g) => fmtUsdBn(h.net[g][i], true)),
+      fmtUsdBn(-(h.net[SIDELINES] || [])[i] || 0, true), fmtUsdBn(h.total[i])]).reverse());
 }
 
 // ---------- market close-up ----------
@@ -1445,7 +1500,9 @@ function renderCloseup(t) {
   const st = (d.streaks.assets || {})[tk];
   const pb = d.selloffs.playbook.find((r) => r.ticker === tk);
   const stats = [
-    [`Range: ${rangeShort()}`, fmtPct(m.ret), m.net_flow_bn != null ? `Net flow ${fmtUsdBn(m.net_flow_bn, true)}, ${fmtPct(Math.abs(m.intensity || 0), 0, false)} of trading` : ""],
+    [`Range: ${rangeShort()}`, fmtPct(m.ret), m.net_flow_bn != null
+      ? `Net flow ${fmtUsdBn(m.net_flow_bn, true)}${m.intensity != null ? ` (${fmtPct(m.intensity, 1)} of the fund)` : ""}`
+      : "Price only: no SPDR fund to measure flows"],
     st ? ["Last 8 weeks", fmtUsdBn(st.total_bn, true), `Inflows in ${st.inflow_weeks} of ${st.weeks} weeks`] : null,
     pb && tk !== d.meta.benchmark ? ["In selloffs since 2016", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
     pb && pb.median_rebound != null && tk !== d.meta.benchmark ? ["After the bottom", fmtPct(pb.median_rebound), `Median over the next ${d.selloffs.rebound_days} trading days`] : null,
@@ -1479,7 +1536,10 @@ function renderCloseup(t) {
   const closes = pts.idx.map((i) => realPrice(pts.close[i], pts.end[i]));
   const base = closes.find((v) => v != null);
   const price = ends.map((e, i) => [e, closes[i] == null || !base ? null : Math.round((closes[i] / base) * 1000) / 10]);
-  const flows = ends.map((e, i) => [e, pts.flow[pts.idx[i]] == null ? null : pts.flow[pts.idx[i]] * deflator(e)]);
+  const hasFlow = state.assets[tk].flows;
+  const fl = pts.flow || [];
+  const flows = ends.map((e, i) => [e, fl[pts.idx[i]] == null ? null : fl[pts.idx[i]] * deflator(e)]);
+  const priceName = tk === "STABLES" ? "Supply, indexed to 100" : state.real ? "Real price, indexed to 100" : "Price, indexed to 100";
   const narrow = narrowScreen();
   const c = chart("chart-closeup");
   c.setOption({
@@ -1495,8 +1555,8 @@ function renderCloseup(t) {
         const i = ps[0].dataIndex;
         const when = pts.unit === "day" ? fmtDate(ends[i]) : pts.unit === "week" ? `Week ending ${fmtDate(ends[i])}` : fmtMonth(ends[i]);
         return `<div style="margin-bottom:4px">${esc(when)}</div>` +
-          row("Price (indexed)", price[i][1] == null ? "–" : price[i][1].toFixed(1), t.groups[state.groupIndex[state.assets[tk].group]]) +
-          row(`Net flow that ${pts.unit}`, fmtUsdBn(flows[i][1], true));
+          row(tk === "STABLES" ? "Supply (indexed)" : "Price (indexed)", price[i][1] == null ? "–" : price[i][1].toFixed(1), assetColor(tk, t)) +
+          (hasFlow ? row(`Net flow that ${pts.unit}`, fmtUsdBn(flows[i][1], true)) : "");
       },
     },
     xAxis: [
@@ -1504,14 +1564,14 @@ function renderCloseup(t) {
       { type: "time", gridIndex: 1, ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
     ],
     yAxis: [
-      { type: "value", gridIndex: 0, scale: true, name: state.real ? "Real price, indexed to 100" : "Price, indexed to 100", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
-      { type: "value", gridIndex: 1, name: pts.label, nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
+      { type: "value", gridIndex: 0, scale: true, name: priceName, nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
+      { type: "value", gridIndex: 1, name: hasFlow ? pts.label : "No flow data: price only", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
     ],
     series: [
       {
         type: "line", xAxisIndex: 0, yAxisIndex: 0, data: price, showSymbol: false, connectNulls: true,
-        lineStyle: { width: 2, color: t.groups[state.groupIndex[state.assets[tk].group]] },
-        itemStyle: { color: t.groups[state.groupIndex[state.assets[tk].group]] },
+        lineStyle: { width: 2, color: assetColor(tk, t) },
+        itemStyle: { color: assetColor(tk, t) },
         markArea: selloffBands(t),
       },
       {
@@ -1533,10 +1593,18 @@ function selloffsInRange() {
   return state.data.selloffs.episodes.filter((e) => overlapsRange(e.peak, e.trough, b)).map(realEpisode);
 }
 
+// Selloffs to show: those in the range, or every selloff when the range holds no completed
+// one, so the playbook never goes blank on short ranges.
+function selloffsShown() {
+  const inRange = selloffsInRange();
+  if (inRange.some((e) => !e.ongoing)) return { eps: inRange, all: false };
+  return { eps: state.data.selloffs.episodes.map(realEpisode), all: true };
+}
+
 // Port of pipeline/analytics.py playbook(): how each market behaved across completed selloffs.
 function computePlaybook(eps) {
   const done = eps.filter((e) => !e.ongoing);
-  return state.data.assets.map(({ ticker }) => {
+  return pricedAssets().map(({ ticker }) => {
     const pick = (k) => done.map((e) => e.assets[ticker] && e.assets[ticker][k]).filter((v) => v != null);
     const rets = pick("ret");
     if (!rets.length) return null;
@@ -1559,12 +1627,13 @@ function emptyChart(c, t, text) {
 function renderPlaybook(t) {
   const s = state.data.selloffs;
   const pct = `${Math.round(s.threshold * 100)}%`;
-  const done = selloffsInRange().filter((e) => !e.ongoing).length;
-  $("#selloff-sub").textContent = done
-    ? `${done} completed S&P 500 selloff${done === 1 ? "" : "s"} of ${pct} or more ${rangeSpan()}. What rose while stocks fell is where sellers' money went.`
-    : `No completed S&P 500 selloffs of ${pct} or more ${rangeSpan()}. Choose a longer range, such as 5Y or All, to see how markets behaved in past selloffs.`;
+  const shown = selloffsShown();
+  const done = shown.eps.filter((e) => !e.ongoing).length;
+  $("#selloff-sub").textContent = shown.all
+    ? `No completed S&P 500 selloff of ${pct} or more ${rangeSpan()}, so these charts show all ${done} since ${fmtMonth(shown.eps[0].peak)}. What rose while stocks fell is where sellers' money went.`
+    : `${done} completed S&P 500 selloff${done === 1 ? "" : "s"} of ${pct} or more ${rangeSpan()}. What rose while stocks fell is where sellers' money went.`;
   $("#threshold-text").textContent = pct;
-  const playbook = computePlaybook(selloffsInRange());
+  const playbook = computePlaybook(shown.eps);
   const rows = playbook.slice().reverse();
   const vals = rows.map((r) => r.median_ret);
   const playbookLabel = barLabel(t, vals, 1);
@@ -1617,7 +1686,7 @@ function renderPlaybook(t) {
 
 function renderHeatmap(t) {
   const s = state.data.selloffs;
-  const eps = selloffsInRange().reverse();
+  const eps = selloffsShown().eps.slice().reverse();
   const tickers = (computePlaybook(eps.length ? eps : s.episodes)).map((r) => r.ticker);
   const el = document.getElementById("chart-heatmap");
   if (!eps.length) {
@@ -1650,7 +1719,7 @@ function renderHeatmap(t) {
         return `<div style="margin-bottom:4px">${esc(assetName(tk))} · ${esc(fmtRange(e.peak, e.trough))}${e.ongoing ? " (ongoing)" : ""}</div>` +
           row("Return", fmtPct(a.ret)) +
           row("S&P 500", fmtPct(e.drawdown)) +
-          row("Est. net flow", fmtUsdBn(a.net_flow_bn, true)) +
+          (a.net_flow_bn != null ? row("Net flow", fmtUsdBn(a.net_flow_bn, true)) : "") +
           row("Volume vs normal", `${fmtNum(a.volume_ratio, 2)}×`) +
           row(`Next ${s.rebound_days} days`, fmtPct(a.rebound));
       },
@@ -1796,21 +1865,22 @@ function renderOutlook() {
     const pace = buying ? (faster ? "buying picking up" : "buying slowing") : (faster ? "selling picking up" : "selling easing");
     return `Inflows in ${v.inflow_weeks} of the last ${v.weeks} weeks; ${pace} this past month`;
   };
-  const c3 = outlookCard("Momentum: last 8 weeks", "Markets with the most unusual buying or selling over the past two months. Persistent flows often continue for a while.");
+  const c3 = outlookCard("Momentum: last 8 weeks", "Funds with the most money put in or taken out over the past two months. Persistent flows often continue for a while.");
   outlookList(c3, building.map(([t, v]) => ({ name: assetName(t), value: fmtUsdBn(v.total_bn, true), why: streakWhy(v) })), "Money building");
   outlookList(c3, leaving.map(([t, v]) => ({ name: assetName(t), value: fmtUsdBn(v.total_bn, true), why: streakWhy(v) })), "Money leaving");
   grid.appendChild(c3);
 
   // 4. Price vs flow: quiet buying into weakness, selling into strength (past month).
   const m = d.windows["20"].assets;
-  const quiet = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity >= 0.05 && v.ret < 0).sort((a, b) => b[1].intensity - a[1].intensity);
-  const selling = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity <= -0.05 && v.ret > 0).sort((a, b) => a[1].intensity - b[1].intensity);
-  const c4 = outlookCard("Price and flow disagree", "Over the past month. Buying while the price falls can mean patient money is accumulating; selling into a rally can mean holders are cashing out.");
+  // Flows of 1% of a fund's size in a month are well beyond normal churn.
+  const quiet = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity >= 0.01 && v.ret < 0).sort((a, b) => b[1].intensity - a[1].intensity);
+  const selling = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity <= -0.01 && v.ret > 0).sort((a, b) => a[1].intensity - b[1].intensity);
+  const c4 = outlookCard("Price and flow disagree", "Over the past month. Money going in while the price falls can mean investors are buying the dip; money leaving a rally can mean holders are cashing out.");
   const divRows = (rows, label) => rows.slice(0, 3).map(([t, v]) => ({
-    name: assetName(t), value: fmtPct(v.ret), why: `${label} ${fmtPct(Math.abs(v.intensity), 0, false)} of normal turnover`,
+    name: assetName(t), value: fmtPct(v.ret), why: `${label} ${fmtUsdBn(Math.abs(v.net_flow_bn))}, ${fmtPct(Math.abs(v.intensity), 1, false)} of the fund`,
   }));
-  if (quiet.length) outlookList(c4, divRows(quiet, "Price fell, yet net buying was"), "Quiet buying");
-  if (selling.length) outlookList(c4, divRows(selling, "Price rose, yet net selling was"), "Selling into strength");
+  if (quiet.length) outlookList(c4, divRows(quiet, "Price fell, yet investors put in"), "Buying the dip");
+  if (selling.length) outlookList(c4, divRows(selling, "Price rose, yet investors pulled"), "Cashing out into strength");
   if (!quiet.length && !selling.length) outlookList(c4, [{ name: "No clear divergences", value: "", why: "Prices and flows mostly moved together this month." }]);
   grid.appendChild(c4);
 
@@ -1874,6 +1944,23 @@ function changeOverRange(pts, b = rangeBounds()) {
   return [r[r.length - 1][1], r.length > 1 ? r[r.length - 1][1] - r[0][1] : null];
 }
 
+// Change text for a cash series: over the range, or the latest report when a slow
+// (monthly) series has nothing new inside a short range.
+function cashDelta(pts, b = rangeBounds()) {
+  const [, change] = changeOverRange(pts, b);
+  if (change != null) return `${fmtUsdBn(change, true)} ${rangeTileSpan()}`;
+  const upto = pts.filter((x) => x[0] <= b.end);
+  if (upto.length < 2) return "No data yet";
+  const [prev, last] = upto.slice(-2);
+  return `${fmtUsdBn(last[1] - prev[1], true)} in the latest report (${fmtMonth(last[0])})`;
+}
+
+// Chart points for a cash series: the range, widened to the last few reports for slow series.
+function cashChartPoints(pts, b = rangeBounds()) {
+  const r = pointsInRange(pts, b);
+  return r.length >= 4 ? r : pts.filter((x) => x[0] <= b.end).slice(-6);
+}
+
 function renderCash(t) {
   $("#cash-sub").textContent = `Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
   const grid = $("#cash-grid");
@@ -1891,11 +1978,11 @@ function renderCash(t) {
   }
   CASH_PANELS.filter((p) => cash[p.key]).forEach((p) => {
     const series = realPoints(cash[p.key]);
-    const pts = pointsInRange(series);
-    const [value, change] = changeOverRange(series);
+    const pts = cashChartPoints(series);
+    const [value] = changeOverRange(series);
     const card = document.getElementById(`chart-cash-${p.key}`).parentElement;
     card.querySelector(".figure").textContent = fmtUsdBn(value);
-    card.querySelector(".delta").textContent = change == null ? "No new data in this range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}`;
+    card.querySelector(".delta").textContent = cashDelta(series);
     chart(`chart-cash-${p.key}`).setOption({
       grid: { left: 44, right: 8, top: 10, bottom: 22 },
       tooltip: {
@@ -1932,6 +2019,236 @@ function shiftDate(iso, days) {
 }
 
 // ---------- regime, performance, correlation ----------
+
+// ---------- rates and credit ----------
+
+const RATE_NOTES = {
+  DGS10: "What the US government pays for 10 years",
+  T10Y2Y: "Below zero is an inverted curve",
+  DFII10: "10-year yield after expected inflation",
+  BAMLH0A0HYM2: "Extra yield on junk bonds",
+  NFCI: "Above zero is tighter than normal",
+};
+
+function fmtRate(v, unit) {
+  if (v == null) return "–";
+  return unit === "pct" ? `${fmtNum(v, 2)}%` : fmtNum(v, 2, true);
+}
+
+// Rate changes in basis points; index changes as plain numbers.
+function fmtRateChange(v, unit) {
+  if (v == null) return "–";
+  return unit === "pct" ? `${fmtNum(v * 100, 0, true)} bp` : fmtNum(v, 2, true);
+}
+
+function renderRates(t) {
+  const grid = $("#rates-grid");
+  const rates = state.data.rates || {};
+  const keys = Object.keys(RATE_NOTES).filter((k) => rates[k]);
+  $("#rates").hidden = !keys.length;
+  if (!keys.length) return;
+  if (!grid.childElementCount) {
+    keys.forEach((k) => {
+      const card = document.createElement("article");
+      card.className = "card mini";
+      card.innerHTML = `<h3></h3><p class="muted small"></p><div class="figure"></div><p class="muted small delta"></p><div class="chart" id="chart-rate-${k}"></div>`;
+      card.querySelector("h3").textContent = rates[k].name;
+      card.querySelector("p").textContent = RATE_NOTES[k];
+      grid.appendChild(card);
+    });
+  }
+  keys.forEach((k) => {
+    const r = rates[k];
+    const pts = cashChartPoints(r.points);
+    const [value, change] = changeOverRange(r.points);
+    const card = document.getElementById(`chart-rate-${k}`).parentElement;
+    card.querySelector(".figure").textContent = fmtRate(value, r.unit);
+    const first = r.points[0][0];
+    card.querySelector(".delta").textContent = change != null
+      ? `${fmtRateChange(change, r.unit)} ${rangeTileSpan()}`
+      : `No data before ${fmtMonth(first)}`;
+    const lo = Math.min(...pts.map((p) => p[1]));
+    const hi = Math.max(...pts.map((p) => p[1]));
+    const zero = lo < 0 && hi > 0;
+    // Narrow ranges need more decimals, or neighbouring ticks print the same.
+    const digits = hi - lo < 0.3 ? 2 : 1;
+    chart(`chart-rate-${k}`).setOption({
+      grid: { left: 44, right: 8, top: 10, bottom: 22 },
+      tooltip: {
+        ...tooltipBase(t),
+        trigger: "axis",
+        axisPointer: { type: "line", lineStyle: { color: t.axis } },
+        formatter: (ps) => `<div style="margin-bottom:4px">${esc(fmtDate(ps[0].data[0]))}</div>` + row(r.name, fmtRate(ps[0].data[1], r.unit), t.groups[1]),
+      },
+      xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true } },
+      yAxis: {
+        type: "value",
+        scale: true,
+        splitNumber: 3,
+        ...axisStyle(t),
+        axisLine: { show: false },
+        axisLabel: { color: t.muted, fontSize: 10, formatter: (v) => (r.unit === "pct" ? `${fmtNum(v, digits)}%` : fmtNum(v, digits)) },
+      },
+      series: [{
+        type: "line",
+        data: pts,
+        showSymbol: false,
+        lineStyle: { width: 2, color: t.groups[1] },
+        itemStyle: { color: t.groups[1] },
+        markArea: selloffBands(t),
+        markLine: zero ? { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ yAxis: 0 }] } : undefined,
+      }],
+    }, true);
+  });
+}
+
+// ---------- futures positioning ----------
+
+// Where the speculators' net position at the end of the range sits among the three
+// years of weekly readings before it (0 = most bearish, 100 = most bullish).
+function crowding(p, b = rangeBounds()) {
+  let i = -1;
+  p.dates.forEach((d, j) => { if (d <= b.end) i = j; });
+  if (i < 0 || p.spec_net[i] == null) return null;
+  const from = shiftDate(p.dates[i], -3 * 365);
+  const past = p.spec_net.filter((v, j) => v != null && j <= i && p.dates[j] > from);
+  const v = p.spec_net[i];
+  const pct = ((past.filter((x) => x < v).length + 0.5 * past.filter((x) => x === v).length) / past.length) * 100;
+  return {
+    i, date: p.dates[i], pct, net: v,
+    change: i > 0 && p.spec_net[i - 1] != null ? v - p.spec_net[i - 1] : null,
+    oi: p.open_interest[i],
+    am: p.am_net ? p.am_net[i] : null,
+  };
+}
+
+function fmtContracts(v, signed = true) {
+  if (v == null) return "–";
+  const a = Math.abs(v);
+  const txt = a >= 1e6 ? `${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(a >= 1e5 ? 0 : 1)}k` : `${Math.round(a)}`;
+  return `${v < 0 ? MINUS : signed && v > 0 ? "+" : ""}${txt}`;
+}
+
+function ordinal(n) {
+  const r = Math.round(n);
+  const s = ["th", "st", "nd", "rd"];
+  const v = r % 100;
+  return `${r}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+// Plain reading of a percentile: crowded long, crowded short, or neither.
+function crowdLabel(pct) {
+  if (pct >= 85) return "Crowded long";
+  if (pct <= 15) return "Crowded short";
+  if (pct >= 65) return "Leaning long";
+  if (pct <= 35) return "Leaning short";
+  return "Middle of the range";
+}
+
+function renderPositioning(t) {
+  const list = state.data.positioning || [];
+  $("#positioning").hidden = !list.length;
+  if (!list.length) return;
+  const b = rangeBounds();
+  const rows = list.map((p) => ({ p, c: crowding(p, b) })).filter((r) => r.c).sort((a, z) => a.c.pct - z.c.pct);
+  const asOf = rows.length ? rows.reduce((m, r) => (r.c.date > m ? r.c.date : m), "") : null;
+  $("#crowding-sub").textContent = `Their net position on ${asOf ? fmtDate(asOf) : "the latest report"} as a percentile of the three years before it. 100 is the most bullish in that time, 0 the most bearish.`;
+  const c = chart("chart-crowding");
+  if (!rows.length) {
+    emptyChart(c, t, "No positioning data for this range");
+    return;
+  }
+  const label = (r) => narrowScreen() ? r.p.name.replace(" futures", "") : r.p.name;
+  c.setOption({
+    grid: { ...barGrid(), top: 24 },
+    tooltip: {
+      ...tooltipBase(t),
+      trigger: "item",
+      formatter: (q) => {
+        const r = rows[q.dataIndex];
+        return `<div style="margin-bottom:4px">${esc(r.p.name)} · ${esc(fmtDate(r.c.date))}</div>` +
+          row(`${r.p.who}, net`, fmtContracts(r.c.net)) +
+          row("Percentile, 3 years", ordinal(r.c.pct)) +
+          row("Change on the week", fmtContracts(r.c.change)) +
+          (r.c.oi ? row("Share of open interest", fmtPct(r.c.net / r.c.oi, 1)) : "") +
+          (r.c.am != null ? row("Asset managers, net", fmtContracts(r.c.am)) : "");
+      },
+    },
+    xAxis: {
+      type: "value", min: -50, max: 50, interval: 25,
+      ...axisStyle(t),
+      axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => `${v + 50}` },
+      splitLine: { lineStyle: { color: t.grid } },
+    },
+    yAxis: { type: "category", data: rows.map(label), ...axisStyle(t), axisLabel: { color: t.text2, fontSize: 12 }, splitLine: { show: false } },
+    series: [{
+      type: "bar",
+      barWidth: "60%",
+      data: rows.map((r) => {
+        const v = r.c.pct - 50;
+        const extreme = r.c.pct >= 85 || r.c.pct <= 15;
+        return {
+          value: v,
+          // Long bars to the left carry their label inside, clear of the market names.
+          label: v < -25
+            ? { show: true, position: "insideLeft", color: "#ffffff", fontSize: 11, formatter: () => ordinal(r.c.pct) }
+            : { show: true, position: v < 0 ? "left" : "right", color: t.text2, fontSize: 11, formatter: () => ordinal(r.c.pct) },
+          itemStyle: { color: v >= 0 ? t.pos : t.neg, opacity: extreme ? 1 : 0.45, borderRadius: v >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] },
+        };
+      }),
+      markLine: {
+        silent: true, symbol: "none",
+        lineStyle: { color: t.axis, type: "dashed", width: 1 },
+        label: { color: t.muted, fontSize: 10, formatter: (q) => (q.value > 0 ? "Crowded long" : "Crowded short"), position: "end" },
+        data: [{ xAxis: 35 }, { xAxis: -35 }],
+      },
+    }],
+  }, true);
+  c.off("click");
+  c.on("click", (q) => { state.position = rows[q.dataIndex].p.key; renderPositionHistory(theme()); });
+  table(cardTable("crowding"), ["Futures market", "Who", "Net contracts", "Week change", "Percentile (3y)", "Reading"],
+    rows.slice().reverse().map((r) => [r.p.name, r.p.who, fmtContracts(r.c.net), fmtContracts(r.c.change), ordinal(r.c.pct), crowdLabel(r.c.pct)]));
+  renderPositionHistory(t);
+}
+
+function renderPositionHistory(t) {
+  const list = state.data.positioning || [];
+  const select = $("#positions-select");
+  if (!select.childElementCount) {
+    list.forEach((p) => {
+      const o = document.createElement("option");
+      o.value = p.key;
+      o.textContent = p.name;
+      select.appendChild(o);
+    });
+    select.addEventListener("change", () => { state.position = select.value; renderPositionHistory(theme()); });
+  }
+  const p = list.find((x) => x.key === state.position) || list[0];
+  if (!p) return;
+  state.position = p.key;
+  select.value = p.key;
+  $("#positions-title").textContent = `Net position: ${p.name}`;
+  // Weekly reports: widen short ranges to the last few months so there is a line to read.
+  const b = rangeBounds();
+  let idx = p.dates.map((d, i) => (inRange(d, b) ? i : -1)).filter((i) => i >= 0);
+  if (idx.length < 8) {
+    const last = p.dates.map((d, i) => (d <= b.end ? i : -1)).filter((i) => i >= 0);
+    idx = last.slice(-13);
+  }
+  $("#positions-sub").textContent = `Contracts long minus contracts short, weekly.${idx.length && !inRange(p.dates[idx[0]], b) ? " Shown for the last three months, since the range holds few weekly reports." : ""} Click a bar on the left to switch market.`;
+  const series = [lineSeries(t, p.who, idx.map((i) => [p.dates[i], p.spec_net[i]]), t.groups[0], {
+    markLine: { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ yAxis: 0 }] },
+    markArea: selloffBands(t),
+  })];
+  if (p.am_net) series.push(lineSeries(t, "Asset managers", idx.map((i) => [p.dates[i], p.am_net[i]]), t.groups[3]));
+  chart("chart-positions").setOption(lineOptions(t, {
+    series,
+    yFormatter: (v) => fmtContracts(v, false),
+    valueFormatter: (v) => `${fmtContracts(v)} contracts`,
+  }), true);
+  table(cardTable("positions"), ["Report date", p.who, ...(p.am_net ? ["Asset managers"] : []), "Open interest"],
+    idx.map((i) => [fmtDate(p.dates[i]), fmtContracts(p.spec_net[i]), ...(p.am_net ? [fmtContracts(p.am_net[i])] : []), fmtContracts(p.open_interest[i], false)]).reverse());
+}
 
 function lineOptions(t, { series, yFormatter, yMin, yMax, valueFormatter }) {
   return {
@@ -2118,13 +2435,15 @@ function renderAll() {
   safely("headline", renderKpis);
   safely("liquidity wheel", renderWheel, t);
   safely("rotation map", renderSankey, t);
-  safely("buying vs selling", renderIntensity, t);
+  safely("flow share", renderIntensity, t);
   safely("liquidity history", renderHistory, t);
   safely("market close-up", renderCloseup, t);
   safely("selloff playbook", renderPlaybook, t);
   safely("selloff heatmap", renderHeatmap, t);
   safely("outlook", renderOutlook);
+  safely("positioning", renderPositioning, t);
   safely("cash", renderCash, t);
+  safely("rates", renderRates, t);
   safely("risk appetite", renderRegime, t);
   safely("performance", renderPerformance, t);
   safely("correlation", renderCorrelation, t);

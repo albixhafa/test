@@ -1,6 +1,6 @@
 """Build docs/data/dashboard.json.
 
-    python -m pipeline.build          # live data from Yahoo, Stooq, FRED and DefiLlama
+    python -m pipeline.build          # live data from Yahoo, Stooq, State Street, CFTC, FRED and DefiLlama
     python -m pipeline.build --demo   # synthetic data, no network
 """
 
@@ -13,14 +13,16 @@ from pathlib import Path
 import pandas as pd
 
 from . import analytics as an
-from .config import (ASSETS, BENCHMARK, CASH_GROUP, FLOW_WINDOWS, FRED_SERIES, GROUPS,
-                     HISTORY_START, REBOUND_DAYS, SELLOFF_THRESHOLD, VIX)
+from .config import (ASSETS, BALANCE_GROUP, BENCHMARK, FLOW_WINDOWS, FRED_SERIES, GROUPS,
+                     HISTORY_START, POSITIONING, RATES_SERIES, REBOUND_DAYS, SELLOFF_THRESHOLD, VIX)
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "docs" / "data" / "dashboard.json"
 
 SOURCES = [
-    {"name": "Yahoo Finance", "detail": "Daily OHLCV for ETFs and crypto (Stooq as fallback)"},
-    {"name": "FRED", "detail": "Fed balance sheet, TGA, reverse repo, retail money funds, M2, CPI"},
+    {"name": "State Street", "detail": "Daily shares outstanding and NAV for SPDR funds (real fund flows)"},
+    {"name": "Yahoo Finance", "detail": "Daily prices and volume for ETFs and crypto (Stooq as fallback)"},
+    {"name": "CFTC", "detail": "Weekly Commitments of Traders: futures positioning"},
+    {"name": "FRED", "detail": "Fed balance sheet, TGA, reverse repo, money funds, CPI, yields, credit spreads"},
     {"name": "DefiLlama", "detail": "Total USD stablecoin supply"},
 ]
 
@@ -30,6 +32,8 @@ def collect_live(log):
 
     prices = {}
     for asset in ASSETS:
+        if asset.flows == "stablecoins":
+            continue
         try:
             prices[asset.ticker] = sources.fetch_yahoo(asset.ticker, HISTORY_START)
             if asset.usd_volume:
@@ -49,8 +53,17 @@ def collect_live(log):
         vix = None
         log.append(f"VIX: no data ({exc})")
 
+    funds = {}
+    for asset in ASSETS:
+        if asset.flows != "ssga":
+            continue
+        try:
+            funds[asset.ticker] = sources.fetch_ssga(asset.ticker.lower())
+        except Exception as exc:  # noqa: BLE001
+            log.append(f"{asset.ticker}: no fund flow data ({exc})")
+
     macro = {}
-    for sid in FRED_SERIES:
+    for sid in [*FRED_SERIES, *RATES_SERIES]:
         try:
             macro[sid] = sources.fetch_fred(sid, HISTORY_START)
         except Exception as exc:  # noqa: BLE001
@@ -60,7 +73,14 @@ def collect_live(log):
     except Exception as exc:  # noqa: BLE001
         stable = None
         log.append(f"Stablecoins: no data ({exc})")
-    return prices, vix, macro, stable
+
+    cftc = {}
+    for p in POSITIONING:
+        try:
+            cftc[p["key"]] = sources.fetch_cftc(p["report"], p["code"], HISTORY_START)
+        except Exception as exc:  # noqa: BLE001
+            log.append(f"CFTC {p['name']}: no data ({exc})")
+    return {"prices": prices, "vix": vix, "macro": macro, "stable": stable, "funds": funds, "cftc": cftc}
 
 
 def _series_points(s, digits=2):
@@ -68,20 +88,42 @@ def _series_points(s, digits=2):
     return [[d.strftime("%Y-%m-%d"), round(float(v), digits)] for d, v in s.items()]
 
 
-def build(prices, vix, macro, stable, demo=False, log=None):
+def _weekly_points(s, digits):
+    """Last observation of each week, dated by that observation."""
+    s = s.dropna()
+    return _series_points(s.groupby(pd.Grouper(freq="W-FRI")).tail(1), digits)
+
+
+def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=None):
     log = log or []
+    funds, cftc = funds or {}, cftc or {}
     if BENCHMARK not in prices:
         raise RuntimeError(f"benchmark {BENCHMARK} is missing; refusing to build")
     calendar = prices[BENCHMARK].index
     panel = an.align_to_calendar(prices, calendar)
-    # Every flow figure below is measured against each market's own trailing normal.
-    panel["flow"] = an.abnormal_flow(panel["flow"])
-    tickers = [a.ticker for a in ASSETS if a.ticker in prices]
+    # Stablecoins have no price; their "close" is the total supply.
+    if stable is not None:
+        panel["close"]["STABLES"] = stable.reindex(calendar.union(stable.index)).ffill().reindex(calendar)
+        panel["dollar_volume"]["STABLES"] = 0.0
+
+    # Real flows: creations minus redemptions for each fund, stablecoin issuance for crypto.
+    flows, sizes = {}, {}
+    for a in ASSETS:
+        if a.flows == "ssga" and a.ticker in funds:
+            flows[a.ticker], sizes[a.ticker] = an.fund_flows(funds[a.ticker]), funds[a.ticker]["aum"]
+        elif a.flows == "stablecoins" and stable is not None:
+            flows[a.ticker], sizes[a.ticker] = an.supply_flows(stable), stable * 1e9
+    panel.update(an.align_flows(flows, sizes, calendar))
+
+    tickers = [a.ticker for a in ASSETS if a.ticker in panel["close"].columns]
+    flow_tickers = [t for t in tickers if t in panel["flow"].columns]
     close = panel["close"][tickers]
+    flow_panel = {"close": close, "dollar_volume": panel["dollar_volume"][tickers],
+                  "flow": panel["flow"][flow_tickers], "aum": panel["aum"][flow_tickers]}
     vix_s = vix.reindex(calendar).ffill() if vix is not None else None
 
     # Cash buckets in USD billions.
-    macro_bn = {sid: s * FRED_SERIES[sid]["unit_scale"] for sid, s in macro.items()}
+    macro_bn = {sid: s * FRED_SERIES[sid]["unit_scale"] for sid, s in macro.items() if sid in FRED_SERIES}
     netliq = an.net_liquidity(macro_bn.get("WALCL"), macro_bn.get("WTREGEN"), macro_bn.get("RRPONTSYD"))
     cash_series = {
         "stablecoins": stable,
@@ -94,10 +136,10 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     # Current rotation.
     windows = {}
     for w in FLOW_WINDOWS:
-        wf = an.window_flows({k: v[tickers] for k, v in panel.items()}, w)
+        wf = an.window_flows(flow_panel, w)
         net = {t: r["net_flow_bn"] for t, r in wf["assets"].items()}
         wf["sankey"] = an.allocate_flows(net)
-        wf["wheel"] = an.class_flows(net, {a.ticker: a.group for a in ASSETS}, GROUPS, CASH_GROUP)
+        wf["wheel"] = an.class_flows(net, {a.ticker: a.group for a in ASSETS}, GROUPS, BALANCE_GROUP)
         windows[str(w)] = wf
 
     # Risk regime.
@@ -119,7 +161,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "series": {t: [None if pd.isna(v) else round(float(v), 2) for v in perf[t]] for t in tickers},
     }
 
-    corr_tickers = [t for t in ["BTC-USD", "GLD", "TLT", "UUP", "HYG"] if t in tickers]
+    corr_tickers = [t for t in ["BTC-USD", "GLD", "SPTL", "UUP", "JNK"] if t in tickers]
     # Rolling correlation: weekly samples for the whole history, daily for the last three years.
     corr_all = an.rolling_correlation(close, BENCHMARK, corr_tickers).dropna(how="all")
 
@@ -134,32 +176,30 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     # Selloff history, with a wheel for each selloff so it can be replayed.
     asset_group = {a.ticker: a.group for a in ASSETS}
     episodes = an.find_selloffs(close[BENCHMARK], SELLOFF_THRESHOLD)
-    episodes = an.selloff_stats({k: v[tickers] for k, v in panel.items()}, episodes, REBOUND_DAYS, cash_series)
-    baseline_start = panel["flow"][BENCHMARK].first_valid_index()
+    episodes = an.selloff_stats(flow_panel, episodes, REBOUND_DAYS, cash_series)
     for ep in episodes:
-        # Selloffs before each market has a year-long baseline can't be replayed.
-        ep["wheel"] = None if pd.Timestamp(ep["peak"]) < baseline_start else an.class_flows(
-            {t: a["net_flow_bn"] for t, a in ep["assets"].items()}, asset_group, GROUPS, CASH_GROUP)
+        nets = {t: a["net_flow_bn"] for t, a in ep["assets"].items() if a["net_flow_bn"] is not None}
+        ep["wheel"] = an.class_flows(nets, asset_group, GROUPS, BALANCE_GROUP) if nets else None
 
     # Flow history between classes: weekly for three years, monthly since the start.
-    flow = panel["flow"][tickers]
+    flow = panel["flow"][flow_tickers]
     history = {
         # 160 weeks, so weekly history covers the full three years of daily rows.
-        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=160),
-        "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, CASH_GROUP, "ME"),
+        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, BALANCE_GROUP, "W-FRI", periods=160),
+        "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, BALANCE_GROUP, "ME"),
     }
-    weekly_assets = (flow.resample("W-FRI").sum() / 1e9).iloc[-26:]
+    weekly_assets = (flow.resample("W-FRI").sum(min_count=1) / 1e9).iloc[-26:]
 
-    # Market close-up: weekly net flow and closing price for every market, three years.
-    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-160:]
-    wk_close = close.resample("W-FRI").last().reindex(wk_flow.index)
-    wk_end = flow.index.to_series().resample("W-FRI").max().reindex(wk_flow.index)
+    # Market close-up: weekly net flow (markets with flow data) and closing price, three years.
+    wk_close = close.resample("W-FRI").last().iloc[-160:]
+    wk_flow = (flow.resample("W-FRI").sum(min_count=1) / 1e9).reindex(wk_close.index)
+    wk_end = close.index.to_series().resample("W-FRI").max().reindex(wk_close.index)
     markets_weekly = {
         "end": [d.strftime("%Y-%m-%d") for d in wk_end],
-        "net": {t: [an._num(v, 3) for v in wk_flow[t]] for t in tickers},
+        "net": {t: [an._num(v, 3) for v in wk_flow[t]] for t in flow_tickers},
         "close": {t: [an._num(v, 4) for v in wk_close[t]] for t in tickers},
     }
-    weekly_classes = pd.DataFrame(history["weekly"]["net"])
+    weekly_classes = pd.DataFrame(history["weekly"]["net"]).drop(columns=[BALANCE_GROUP])
     streaks = {
         "classes": an.flow_streaks(weekly_classes),
         "assets": an.flow_streaks(weekly_assets),
@@ -170,9 +210,9 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         if s is None or s.empty:
             continue
         s = s[s.index >= "2016-01-01"]
-        if key in ("stablecoins", "rrp"):
-            s = s.resample("W-FRI").last()
-        cash_out[key] = _series_points(s, 1)
+        # Daily series as weekly samples dated by their last observation, so the newest
+        # point never sits in the future.
+        cash_out[key] = _weekly_points(s, 1) if key in ("stablecoins", "rrp") else _series_points(s, 1)
 
     def last_change(s, periods_back):
         if s is None or len(s) <= periods_back:
@@ -196,6 +236,19 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "drawdown": an._num(close[BENCHMARK].iloc[-1] / close[BENCHMARK].iloc[-253:].max() - 1),
     }
 
+    # Futures positioning: speculators' net position and where it sits in three years.
+    positioning = []
+    for p in POSITIONING:
+        if p["key"] in cftc:
+            summary = an.positioning_summary(cftc[p["key"]])
+            if summary:
+                positioning.append({"key": p["key"], "name": p["name"],
+                                    "who": "Leveraged funds" if p["report"] == "tff" else "Managed money", **summary})
+
+    # Rates and credit backdrop, weekly samples since 2016.
+    rates = {sid: {"name": cfg["name"], "unit": cfg["unit"], "points": _weekly_points(macro[sid][macro[sid].index >= "2016-01-01"], 3)}
+             for sid, cfg in RATES_SERIES.items() if sid in macro and not macro[sid].empty}
+
     return {
         "meta": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -206,8 +259,10 @@ def build(prices, vix, macro, stable, demo=False, log=None):
             "benchmark": BENCHMARK,
         },
         "groups": GROUPS,
-        "assets": [{"ticker": a.ticker, "name": a.name, "short": a.short or a.name, "group": a.group}
-                   for a in ASSETS if a.ticker in prices],
+        "balance_group": BALANCE_GROUP,
+        "assets": [{"ticker": a.ticker, "name": a.name, "short": a.short or a.name, "group": a.group,
+                    "flows": a.ticker in flow_tickers}
+                   for a in ASSETS if a.ticker in tickers],
         "kpis": kpis,
         "regime": regime,
         "windows": windows,
@@ -218,7 +273,9 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "markets_weekly": markets_weekly,
         # Monthly CPI (index level) for the page's inflation-adjusted view.
         "cpi": _series_points(macro["CPIAUCSL"][macro["CPIAUCSL"].index >= "2015-12-01"], 3) if "CPIAUCSL" in macro else None,
-        "series": an.range_series(flow, panel["dollar_volume"][tickers], close),
+        "series": an.range_series(flow, panel["aum"][flow_tickers], close),
+        "positioning": positioning,
+        "rates": rates,
         "streaks": streaks,
         "selloffs": {
             "threshold": SELLOFF_THRESHOLD,
@@ -239,16 +296,20 @@ def main(argv=None):
     if args.demo:
         from .demo import generate
 
-        prices, vix, macro, stable = generate()
+        raw = generate()
     else:
-        prices, vix, macro, stable = collect_live(log)
-        missing = len(ASSETS) - len(prices)
-        if missing > len(ASSETS) // 3:
-            print(f"Too many assets missing ({missing}); keeping the previous dashboard.json", file=sys.stderr)
+        raw = collect_live(log)
+        priced = [a for a in ASSETS if a.flows != "stablecoins"]
+        with_flows = [a for a in ASSETS if a.flows == "ssga"]
+        missing = len(priced) - len(raw["prices"])
+        missing_flows = len(with_flows) - len(raw["funds"])
+        if missing > len(priced) // 3 or missing_flows > len(with_flows) // 3:
+            print(f"Too much data missing ({missing} prices, {missing_flows} fund flows); "
+                  "keeping the previous dashboard.json", file=sys.stderr)
             print("\n".join(log), file=sys.stderr)
             return 1
 
-    data = build(prices, vix, macro, stable, demo=args.demo, log=log)
+    data = build(**raw, demo=args.demo, log=log)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(data, separators=(",", ":")))
     print(f"Wrote {args.out} (as of {data['meta']['as_of']}, {len(data['selloffs']['episodes'])} selloffs)")

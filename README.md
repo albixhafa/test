@@ -2,27 +2,31 @@
 
 A dashboard for one question: **when stocks and ETFs sell off, where does the money go?**
 
-It tracks cross-asset rotation across US and global equities, defensive sectors, Treasuries
-and T-bills, credit, gold, commodities, the US dollar and crypto, alongside the places cash
-parks: stablecoins, retail money market funds, the Fed's reverse repo facility and the
-Treasury's cash account.
+It tracks **real fund flows** (creations and redemptions in State Street's SPDR funds: the
+S&P 500, all eleven sectors, international stocks, Treasuries, corporate and high-yield bonds,
+T-bills and gold, plus stablecoin issuance for crypto), **futures positioning** from the CFTC,
+**rates and credit**, prices for markets without an SPDR fund (Nasdaq 100, small caps, bitcoin,
+ether, the dollar, commodities), and the places cash parks: stablecoins, retail money market
+funds, the Fed's reverse repo facility and the Treasury's cash account.
 
 ## What's on the page
 
 | Panel | Question it answers |
 |---|---|
-| Right now | The page in five plain sentences: selloff or not, mood, where money went, cash on the sidelines, what to watch |
+| Right now | The page in a few plain sentences: selloff or not, mood, where money went, crowded trades, rates and credit, cash on the sidelines, what to watch |
 | Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? (each with an ⓘ explanation) |
-| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the dollar, with the total in the middle; can replay any past week, month or selloff |
-| Market close-up | Price and week-by-week flow for any one market over three years, plus its record in past selloffs |
-| Liquidity history | Net flows per class week by week (3 years) or month by month (since 2017), as bars or running totals |
+| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the sidelines (money entering or leaving the tracked funds), with the total in the middle; can replay any past week, month or selloff |
+| Market close-up | Price and flow for any one market over the selected range, plus its record in past selloffs |
+| Liquidity history | Net flows per class by day, week or month, with net new money as a line, as bars or running totals |
 | Outlook | Selloffs in perspective, which markets held up and bounced back in past selloffs, 8-week flow momentum, price/flow divergences, dry powder |
-| Rotation map (Sankey) | Over the last week, month or quarter, which markets saw net selling and where did that pressure go? |
-| Buying vs selling pressure | Net flow per market as a share of its normal turnover |
+| Rotation map (Sankey) | Over the selected range, which funds lost money and where did it go? |
+| Flow as a share of each fund | Net flow divided by fund size, so a $5B fund and an $800B fund compare fairly (this is where sector rotation shows) |
 | Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
 | Every selloff, every market | Peak-to-trough return of every market in every selloff, with cash-bucket changes in the table view |
+| Positioning | Where hedge funds and other speculators stand in S&P 500, Nasdaq, 10-year and long Treasury, dollar, bitcoin, gold and crude oil futures, as a percentile of three years, and their net position over time |
 | Dry powder | Stablecoin supply, retail money funds, reverse repo, TGA and Fed net liquidity, with selloffs shaded |
-| Risk appetite | A composite z-score of equities, small caps vs large, credit vs Treasuries, bitcoin, the dollar and VIX |
+| Rates and credit | 10-year yield, the 2s10s curve, the 10-year real yield, the high-yield spread and the Chicago Fed's financial conditions index |
+| Risk appetite | A composite z-score of equities, small caps vs large, high-yield vs Treasuries, bitcoin, the dollar and VIX |
 | Correlation to stocks | Is bitcoin, gold, Treasuries, the dollar or high yield still a hedge? |
 
 Every chart has a **Table** toggle with the underlying numbers.
@@ -34,23 +38,34 @@ or monthly rows (since 2017) that the pipeline publishes in `series`.
 An **Inflation-adjusted** checkbox next to it restates dollar amounts in today's dollars and
 returns as real returns, using monthly CPI (`CPIAUCSL` from FRED).
 
-## Important caveat: flows are estimated
+## How flows are measured
 
-Every share sold has a buyer, so a selloff doesn't drain a fixed pot of money. What
-changes is who holds what. True fund flows (ETF creations and redemptions, money fund
-subscriptions) mostly sit behind paid data, so this dashboard estimates flow pressure
-with Chaikin money flow (each day's dollar volume, signed by where the close landed in the
-day's range), measured against each market's own trailing one-year average so only unusual
-buying or selling counts. The rotation map splits each net outflow across net inflows in proportion to
-size and routes any imbalance through a *Cash & sidelines* node. The liquidity wheel does the
-same at the asset-class level, with cash as the balancing account. Read both as pressure, not
-as a ledger of who bought from whom.
+Every share sold has a buyer, so trading alone doesn't move money between markets. What
+does is investors putting new money into funds or pulling it out. State Street publishes
+each SPDR fund's shares outstanding every day: new shares times NAV is money put in,
+cancelled shares money taken out. A day where the share count jumps or falls by half or more
+(a split or a reporting glitch) counts as no flow. Crypto's flow is the change in total USD
+stablecoin supply.
+
+SPDR funds are a large, consistent sample of US ETFs (well over a trillion dollars), not the
+whole market, so read sizes as a sample and directions as the signal. Bond and international
+coverage is thinner than stocks and gold, which is why the page also shows each flow as a
+share of the fund's size.
+
+The liquidity wheel adds flows up within each class and balances them through the
+**Sidelines**: money that came into the tracked funds from outside (bank deposits, other
+funds) is shown leaving the sidelines, money that left them altogether is shown going to the
+sidelines. The rotation map splits each net outflow across net inflows in proportion to size.
+Read both as a picture of rotation, not a ledger of who bought from whom.
 
 ## Data sources (all free, no API keys)
 
-- **Yahoo Finance**: daily OHLCV for 15 ETFs plus BTC and ETH (Stooq as a fallback for ETFs)
+- **State Street**: daily NAV and shares outstanding for 20 SPDR funds (real fund flows)
+- **Yahoo Finance**: daily prices and volume for 26 ETFs and crypto pairs (Stooq as a fallback for ETFs)
+- **CFTC**: weekly Commitments of Traders (Traders in Financial Futures and Disaggregated reports)
 - **FRED**: `WALCL` (Fed balance sheet), `WTREGEN` (TGA), `RRPONTSYD` (reverse repo),
-  `RMFSL` (retail money funds), `M2SL`
+  `RMFSL` (retail money funds), `M2SL`, `CPIAUCSL` (CPI), `DGS10`, `T10Y2Y`, `DFII10`,
+  `BAMLH0A0HYM2` (high-yield spread; FRED keeps three years of it), `NFCI`
 - **DefiLlama**: total USD stablecoin supply
 
 Edit `pipeline/config.py` to change the universe, lookback windows or the selloff threshold.
@@ -74,16 +89,16 @@ banner saying so) until the first live refresh replaces it.
 2. Run the **Refresh data** workflow once from the Actions tab.
 
 After that it runs every weekday after the US close: it rebuilds `dashboard.json` from live
-sources, commits it, and redeploys the site. If more than a third of the markets fail to
-download, the build stops and the previous data stays in place; smaller gaps are listed in a
-warning banner on the page.
+sources, commits it, and redeploys the site. If more than a third of the prices or of the fund
+flow files fail to download, the build stops and the previous data stays in place; smaller
+gaps are listed in a warning banner on the page.
 
 ## Alerts
 
 On the daily refresh, `pipeline/alerts.py` compares the new data with the previous day's and
 opens a GitHub issue when something changes: the market mood flips, a selloff starts or ends,
-a week of flows is among the heaviest 5% of the past three years, or a risk signal turns
-extreme. GitHub emails repository owners about new issues by default; adjust that under
+a week of flows is among the heaviest 5% of the past three years, a risk signal turns
+extreme, or speculators' futures positioning reaches the top or bottom 5% of its three-year range. GitHub emails repository owners about new issues by default; adjust that under
 your notification settings or the repository's **Watch** menu.
 
 ## Sharing a view
@@ -96,8 +111,8 @@ view (for example `#range=3M&r=ep:12&m=GLD`, or `#from=2020-02-01&to=2020-04-30`
 ```
 pipeline/
   config.py     universe, FRED series, windows, selloff threshold
-  sources.py    fetchers and parsers for Yahoo, Stooq, FRED, DefiLlama
-  analytics.py  money flow, rotation allocation, selloff detection, risk score
+  sources.py    fetchers and parsers for State Street, Yahoo, Stooq, CFTC, FRED, DefiLlama
+  analytics.py  fund flows, rotation allocation, selloff detection, positioning, risk score
   demo.py       synthetic data generator
   build.py      CLI that writes docs/data/dashboard.json
 docs/           static site (index.html, app.js, styles.css; ECharts and D3 in docs/vendor)
