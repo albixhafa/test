@@ -282,6 +282,7 @@ details.method[open] > summary h2::before { content: "▾ "; }
 /* Classes: diverging bars per class that open into their funds. */
 .card .chart.classes-view { height: auto; }
 .classes-total { font-size: 15px; font-weight: 600; margin: 4px 0 10px; }
+.card-head > .classes-total { flex: 1 1 240px; margin: 6px 0 0; }
 .class-bars, .fund-rows { list-style: none; margin: 0; padding: 0; }
 .class-bars { display: grid; gap: 2px; margin-bottom: 12px; max-width: 980px; }
 .cls-row, .fund-row {

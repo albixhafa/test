@@ -441,8 +441,10 @@ const INFO = {
   net_liquidity: "The Federal Reserve's balance sheet minus the Treasury's cash account and the reverse repo facility. A rough gauge of cash available to markets; when it rises, asset prices tend to get support.",
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
-  flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only.",
+  flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only. Classes: bars to the right are money coming in, to the left money going out; tap a class to open its funds and a fund for its price and flows. Map: each tile is a fund, sized by its assets and coloured by its flow as a share of the fund. Vs returns: each dot is a fund, across is its return and up is its flow as a share of the fund.",
   pools: "Stocks: US companies' shares, listed and private (Federal Reserve Financial Accounts, quarterly), carried month to month by the S&P 500. Real estate: homes and land owned by households (Financial Accounts, quarterly), carried by the Case-Shiller home price index; property owned by companies is already inside their shares. Bonds: marketable US Treasuries at market value (Dallas Fed) plus company bonds. Cash: the M2 money supply plus companies' money market funds. Gold: all gold ever mined (World Gold Council estimate) times the gold price. Crypto: bitcoin and ether in circulation times their prices, plus stablecoins. US figures for stocks, real estate, bonds and cash; global for gold and crypto. Values move with prices: when markets fall, the value falls without any money leaving.",
+  history: "Each line adds up a class's net flows from the start of the selected range: rising means money keeps coming in, falling means it keeps leaving. Net new money is what came into the tracked funds from outside. Shaded bands are S&P 500 selloffs. Tap a point to see that period by class.",
+  backdrop: "Cash: where money that leaves risk assets parks. Rates: what cash and borrowing cost, and how nervous lenders are. Positioning: speculators' net futures position as a percentile of the last three years (CFTC, weekly); near 0 or 100 is crowded and can unwind fast. Risk: whether the market is reaching for risk or running from it, and which assets still move with stocks. Tap a row for its chart.",
   intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
 
@@ -502,10 +504,6 @@ const SIGNAL_TEXT = {
   "Volatility (inverted)": ["Expected volatility is unusually low: markets are calm.", "Expected volatility (VIX) is unusually high: markets are nervous."],
 };
 
-function listText(items) {
-  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
-
 function median(xs) {
   const v = xs.filter((x) => x != null).sort((a, b) => a - b);
   if (!v.length) return null;
@@ -518,18 +516,6 @@ function median(xs) {
 
 function hideTip() {
   $("#tip").hidden = true;
-}
-
-// What the class bars say in one line: the biggest inflow and outflow, both measured.
-function classHeadline(view) {
-  const ranked = Object.entries(view.wheel.net).filter(([g]) => g !== SIDELINES).sort((x, z) => z[1] - x[1]);
-  const top = ranked[0];
-  const bottom = ranked[ranked.length - 1];
-  const parts = [];
-  if (top && top[1] > 0.05) parts.push(`${top[0].toLowerCase()} took in the most (${fmtUsdBn(top[1], true)})`);
-  if (bottom && bottom[1] < -0.05) parts.push(`${bottom[0].toLowerCase()} lost the most (${fmtUsdBn(bottom[1], true)})`);
-  if (!parts.length) return `Little money moved in or out ${view.span}`;
-  return `${capitalise(view.span)}, ${parts.join(" and ")}`;
 }
 
 // ---------- views: the selected range, a past week or month, or a past selloff ----------
@@ -723,14 +709,10 @@ function renderClasses(t) {
   const net = view.wheel.net;
   const nets = view.marketNets || {};
   const agg = state.replay ? null : aggregate().assets;
-  $("#classes-headline").textContent = classHeadline(view);
-  $("#classes-sub").textContent = `${fmtRange(view.start, view.end)}. Real money into and out of State Street funds and stablecoins.${dollarsNote()}`;
-  $("#classes-sub").appendChild(infoButton("Where the flows come from", "flows"));
   const fresh = -(net[SIDELINES] || 0);
   $("#classes-total").textContent = fresh >= 0
     ? `New money in: ${fmtUsdBn(fresh, true)}`
     : `Money out of the tracked funds: ${fmtUsdBn(fresh, true)}`;
-  $("#classes-mmf").textContent = mmfNote(view);
 
   const classes = state.data.groups.filter((g) => g !== SIDELINES).map((g) => ({
     g,
@@ -858,7 +840,7 @@ function renderPools(t) {
     $("#pools").hidden = true;
     return;
   }
-  const { P, shown, widened, year } = poolPeriods();
+  const { P, shown, year } = poolPeriods();
   const { scale } = state.pools;
   document.querySelectorAll("#pools-grain button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.grain === state.pools.grain)));
   document.querySelectorAll("#pools-scale button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.scale === scale)));
@@ -871,15 +853,6 @@ function renderPools(t) {
   const val = (g, i) => (P.values[g][i] == null ? null : P.values[g][i] * deflator(P.dates[i]));
   const totals = shown.map((i) => groups.reduce((acc, g) => acc + (val(g, i) || 0), 0));
   const label = (i) => (year ? P.dates[i].slice(0, 4) : fmtMonth(P.dates[i]));
-
-  // Headline: the latest split, and how much the total has grown over the bars shown.
-  const li = shown[shown.length - 1];
-  const lt = totals[totals.length - 1];
-  const split = groups.map((g) => [g, val(g, li) || 0]).sort((x, z) => z[1] - x[1]);
-  const growth = totals.length > 1 && totals[0] > 0 ? lt / totals[0] - 1 : null;
-  $("#pools-headline").textContent = `About ${fmtPool(lt)} in ${label(li)}${partial(li) ? " so far" : ""}: ${listText(split.slice(0, 3).map(([g, v]) => `${poolName(g).toLowerCase()} ${Math.round((v / lt) * 100)}%`))}`;
-  $("#pools-sub").textContent = `${growth != null ? `${fmtPct(growth, 0)} since ${label(shown[0])}. ` : ""}${widened ? (year ? "Showing three years, since this chart is yearly. " : "Showing the last 12 months, since this chart is monthly. ") : ""}Estimates from public data; tap a bar for the split.${dollarsNote()}`;
-  $("#pools-sub").appendChild(infoButton("How these sizes are estimated", "pools"));
 
   const c = chart("chart-pools");
   const many = shown.length > 24;
@@ -957,8 +930,6 @@ function renderMap(t) {
   const cap = sizes.length ? Math.max(0.002, sizes[Math.floor((sizes.length - 1) * 0.9)]) : 0.01;
   const shade = (v) => Math.min(1, Math.abs(v) / cap);
   const colour = (v) => mixHex(t.mid, v >= 0 ? t.pos : t.neg, 0.15 + 0.85 * shade(v));
-  $("#map-sub").textContent = `${fmtRange(w.start, w.end)}. Each tile is a fund, sized by its assets. Blue means money came in, red money went out, as a share of the fund; the stronger the colour, the bigger the flow.`;
-  $("#map-sub").appendChild(infoButton("Flow as a share of each fund", "intensity"));
   const data = state.data.groups.filter((g) => g !== SIDELINES).map((g) => ({
     name: g,
     children: funds.filter(([tk]) => state.assets[tk].group === g).map(([tk, a]) => ({
@@ -1074,7 +1045,6 @@ function renderQuadrant(t) {
   const rows = Object.entries(w.assets)
     .filter(([k, v]) => k !== "STABLES" && v.intensity != null && v.ret != null)
     .map(([k, v]) => ({ k, v }));
-  $("#quadrant-sub").textContent = `${fmtRange(w.start, w.end)}. Each dot is a fund: across is its return, up is net money in as a share of the fund, size is the fund's size.${dollarsNote()}`;
   const c = chart("chart-quadrant");
   if (!rows.length) {
     emptyChart(c, t, "No fund flows in this range");
@@ -1104,7 +1074,7 @@ function renderQuadrant(t) {
   const digits = (step) => (Math.abs(Math.round(step * 100) - step * 100) > 1e-9 ? 1 : 0);
   const corner = (text, pos) => ({ name: text, label: { show: true, position: pos, color: t.muted, fontSize: 11, formatter: text } });
   c.setOption({
-    grid: { left: 8, right: 16, top: 16, bottom: 28, containLabel: true },
+    grid: { left: 8, right: 16, top: 32, bottom: 44, containLabel: true },
     tooltip: {
       ...tooltipBase(t),
       trigger: "item",
@@ -1120,8 +1090,16 @@ function renderQuadrant(t) {
           `<div style="margin-top:6px;opacity:.7">${esc(quadrantOf(r.v)[2])}</div>`;
       },
     },
-    xAxis: { type: "value", min: x0, max: x1, interval: xStep, ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, digits(xStep)) } },
-    yAxis: { type: "value", min: y0, max: y1, interval: yStep, ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPct(v, digits(yStep)) } },
+    xAxis: {
+      type: "value", min: x0, max: x1, interval: xStep, ...axisStyle(t), splitLine: { show: false },
+      name: "Return", nameLocation: "middle", nameGap: 26, nameTextStyle: { color: t.muted, fontSize: 11 },
+      axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, digits(xStep)) },
+    },
+    yAxis: {
+      type: "value", min: y0, max: y1, interval: yStep, ...axisStyle(t), axisLine: { show: false, onZero: false },
+      name: "Money in, % of fund", nameTextStyle: { color: t.muted, fontSize: 11, align: "left" },
+      axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPct(v, digits(yStep)) },
+    },
     series: [{
       type: "scatter",
       data: rows.map((r) => ({
@@ -1262,15 +1240,10 @@ function renderHistory(t) {
   const c = chart("chart-history");
   if (!h.end.length) {
     c.clear();
-    $("#history-headline").textContent = "No flow history in this range";
-    $("#history-sub").textContent = "Flow history starts in January 2017. Pick a later or longer range.";
+      emptyChart(c, t, "No flow history in this range. It starts in January 2017.");
     table(cardTable("history"), ["Period"], []);
     return;
   }
-  const unit = { daily: "day", weekly: "week", monthly: "month" }[kind];
-  $("#history-headline").textContent = "Running total by class";
-  $("#history-sub").textContent = `How much each class has taken in (above zero) or lost (below zero) since ${fmtDate(h.start[0], true)}, ${unit} by ${unit}. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
-
   const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v || 0)); };
   // The sidelines would only mirror every other line, so they show as net new money
   // into the tracked funds instead (their balance with the sign flipped).
@@ -1570,21 +1543,20 @@ function renderSelloffStats() {
   $("#threshold-text").textContent = pct;
   const shown = selloffsShown();
   const n = shown.eps.filter((e) => !e.ongoing).length;
-  $("#selloff-sub").textContent = shown.all
-    ? `No completed selloff ${rangeSpan()}, so this shows all ${n} since ${fmtMonth(shown.eps[0].peak)}. What rose while stocks fell is where sellers' money went.`
-    : `${n} completed selloff${n === 1 ? "" : "s"} ${rangeSpan()}. What rose while stocks fell is where sellers' money went.`;
+  $("#selloff-sub").hidden = !shown.all;
+  $("#selloff-sub").textContent = shown.all ? `No selloff ${rangeSpan()}: showing all ${n} since ${fmtMonth(shown.eps[0].peak)}.` : "";
   const done = s.episodes.filter((e) => !e.ongoing);
-  if (!done.length) {
-    $("#selloff-stats").textContent = "";
-    return;
-  }
-  const years = (parseDay(d.meta.as_of) - parseDay(s.episodes[0].peak)) / (365.25 * 864e5);
+  const years = done.length ? (parseDay(d.meta.as_of) - parseDay(s.episodes[0].peak)) / (365.25 * 864e5) : 0;
   const last = s.episodes[s.episodes.length - 1];
   const now = last && last.ongoing
     ? `A selloff is under way: ${fmtPct(last.drawdown, 1)} since ${fmtDate(last.peak)}.`
     : `Today the S&P 500 is ${fmtPct(d.kpis.drawdown, 1)} from its high.`;
-  $("#selloff-stats").textContent = `Since 2016 the S&P 500 has fallen ${pct} or more ${done.length} times, about once every ${Math.round((years * 12) / done.length)} months. ` +
-    `The typical drop was ${fmtPct(median(done.map((e) => e.drawdown)), 0)} over ${Math.round(median(done.map((e) => e.days)) / 5)} weeks. ${now}`;
+  const history = done.length
+    ? `Since 2016 it has happened ${done.length} times, about once every ${Math.round((years * 12) / done.length)} months; the typical drop was ${fmtPct(median(done.map((e) => e.drawdown)), 0)} over ${Math.round(median(done.map((e) => e.days)) / 5)} weeks. `
+    : "";
+  INFO.selloffs = `A selloff is a fall of at least ${pct} in the S&P 500 from a swing high. ${history}${now} ` +
+    "Playbook: each market's median return from the S&P 500's peak to its trough; what rose while stocks fell is where sellers' money went. " +
+    "Every selloff: each market in each selloff, newest at top. Tap a row to see that selloff's flows.";
 }
 
 function renderHeatmap(t) {
@@ -1744,25 +1716,6 @@ function monthSpan(from, to) {
 }
 
 // One line under the wheel tying its sidelines to measured cash: what money funds took in.
-function mmfNote(view) {
-  const f = state.data.mmf_flows;
-  if (!f || !f.length) return "";
-  const m = mmfFlowFor(view.start, view.end);
-  if (m) {
-    return `Measured cash for comparison: money market funds ${m.value >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(m.value))} in ${monthSpan(m.from, m.to)} (estimated, after interest).`;
-  }
-  // A short period in the past: use the reported months it overlaps.
-  const [d, v] = f[f.length - 1];
-  if (view.end <= d) {
-    const months = f.filter(([x]) => x >= view.start && shiftDate(x, -31) < view.end);
-    if (months.length) {
-      const total = months.reduce((a, [x, y]) => a + y * deflator(x), 0);
-      return `Measured cash for comparison: money market funds ${total >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(total))} in ${monthSpan(months[0][0], months[months.length - 1][0])}, the month${months.length > 1 ? "s" : ""} this period falls in (estimated, after interest).`;
-    }
-  }
-  return `Measured cash for comparison: money market funds ${v >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(v * deflator(d)))} in ${fmtMonth(d)}, the latest month reported.`;
-}
-
 function shiftDate(iso, days) {
   const d = new Date(iso + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
@@ -1854,7 +1807,10 @@ function renderPositionHistory(t) {
     const last = p.dates.map((d, i) => (d <= b.end ? i : -1)).filter((i) => i >= 0);
     idx = last.slice(-13);
   }
-  $("#positions-sub").textContent = `Contracts long minus contracts short, weekly.${idx.length && !inRange(p.dates[idx[0]], b) ? " Shown for the last three months, since the range holds few weekly reports." : ""}`;
+  // Only worth a note when the chart shows more than the range.
+  const widened = idx.length > 0 && !inRange(p.dates[idx[0]], b);
+  $("#positions-sub").hidden = !widened;
+  $("#positions-sub").textContent = widened ? "Last three months shown: the range holds few weekly reports." : "";
   const series = [lineSeries(t, p.who, idx.map((i) => [p.dates[i], p.spec_net[i]]), t.groups[0], {
     markLine: { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ yAxis: 0 }] },
     markArea: selloffBands(t),
@@ -2081,8 +2037,6 @@ function renderBackdropPositioning(t) {
     .sort((x, z) => Math.abs(z.c.pct - 50) - Math.abs(x.c.pct - 50));
   if (!rows.length) return;
   if (!rows.some((r) => r.key === state.backdrop.positioning)) state.backdrop.positioning = rows[0].key;
-  const asOf = rows.reduce((m, r) => (r.c.date > m ? r.c.date : m), "");
-  $("#positioning-sub").textContent = `Speculators' net futures position on ${fmtDate(asOf)} as a percentile of the three years before it (CFTC, weekly). Near 0 or 100 is crowded and can unwind fast.`;
   backdropTable("positioning", "Futures positioning", [
     { head: "Futures", cell: (r) => nameCell(r.p.name.replace(" futures", ""), r.p.who), csv: (r) => r.p.name },
     { head: "Net contracts", cls: "num hide-narrow", cell: (r) => fmtContracts(r.c.net) },
@@ -2564,6 +2518,7 @@ async function main() {
     showError("The chart library (vendor/echarts-5.5.1.min.js) did not load, so charts can't be drawn. Try reloading the page.");
   }
   wireControls();
+  document.querySelectorAll("[data-info]").forEach((el) => el.appendChild(infoButton(el.textContent, el.dataset.info)));
   let data;
   try {
     const resp = await fetch("data/dashboard.json", { cache: "no-cache" });
