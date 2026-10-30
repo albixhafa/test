@@ -147,15 +147,15 @@
         </div>
       </div>
       <div class="grid two">
-        <article class="card" data-card="sankey">
+        <article class="card" data-card="quadrant">
           <header class="card-head">
             <div>
-              <h3>Rotation map</h3>
-              <p class="muted small" id="sankey-sub"></p>
+              <h3>Flows vs returns</h3>
+              <p class="muted small" id="quadrant-sub"></p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
-          <div class="chart tall" id="chart-sankey"></div>
+          <div class="chart tall" id="chart-quadrant"></div>
           <div class="table-wrap" hidden></div>
         </article>
         <article class="card" data-card="intensity">
@@ -356,9 +356,16 @@
           <p>Each fund's flow is added up within its class, so rotation inside a class (from tech into utilities,
             say) cancels out and only money crossing between classes remains. The <em>Sidelines</em> balance the
             wheel: money that came into the tracked funds from outside (bank deposits, other funds) is shown leaving
-            the sidelines, and money that left them altogether is shown going to the sidelines. The rotation map
-            splits each net outflow across net inflows in proportion to size; it is a way to read the rotation, not
-            a ledger of who bought from whom.</p>
+            the sidelines, and money that left them altogether is shown going to the sidelines. Between classes, each
+            net outflow is split across net inflows in proportion to size: a way to read the rotation, not a ledger
+            of who bought from whom.</p>
+          <h3>Flows vs returns, and how unusual a flow is</h3>
+          <p>The quadrant chart puts each fund's return across and its net flow (as a share of the fund) up. Top right
+            is money chasing strength, top left buying the dip, bottom right taking profits, bottom left capitulation.
+            "How unusual" ranks the fund's flow over the selected range against every window of the same length in
+            the last three years: the 99th percentile means only 1% of such windows saw bigger inflows. SPY is the
+            fund traders use for hedging and quick moves, so its flows swing far more than those of buy-and-hold
+            S&amp;P 500 funds; read it as tactical money.</p>
           <h3>Positioning</h3>
           <p>The CFTC publishes, every Friday for the previous Tuesday, how many futures contracts each type of
             trader holds. For stock, bond, dollar and bitcoin futures the page shows <em>leveraged funds</em> (hedge
@@ -409,6 +416,10 @@
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
             confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and
             left out of the playbook medians.</p>
+          <div>
+            <h3>Data freshness</h3>
+            <ul class="freshness" id="freshness"></ul>
+          </div>
           <p class="muted small" id="sources"></p>
         </div>
       </div>

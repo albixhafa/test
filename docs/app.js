@@ -152,7 +152,28 @@ function chart(id) {
   return state.charts[id];
 }
 
+function csvCell(v) {
+  const s = String(v ?? "").replace(/\u2212/g, "-");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 function table(container, headers, rows) {
+  // Every table can be downloaded as CSV, named after its card.
+  const card = container.closest("[data-card]");
+  const title = (card && card.querySelector("h3") ? card.querySelector("h3").textContent : "table").trim();
+  const dl = document.createElement("button");
+  dl.type = "button";
+  dl.className = "ghost small csv";
+  dl.textContent = "Download CSV";
+  dl.addEventListener("click", () => {
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${state.data.meta.as_of}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  });
   const tbl = document.createElement("table");
   const thead = tbl.createTHead().insertRow();
   headers.forEach((h) => {
@@ -167,7 +188,7 @@ function table(container, headers, rows) {
       tr.insertCell().textContent = cell;
     });
   });
-  container.replaceChildren(tbl);
+  container.replaceChildren(...(rows.length ? [dl] : []), tbl);
 }
 
 function cardTable(card) {
@@ -497,6 +518,15 @@ function renderNow() {
   items.push([`Mood: ${d.regime.label}. `, `${REGIME_TEXT[d.regime.label] || ""} (score ${fmtNum(d.regime.score, 2, true)}).`]);
   const month = { wheel: d.windows["20"].wheel, span: "over the past month" };
   items.push(["Money flow: ", `${wheelHeadline(month)}.`]);
+  const D = d.series.daily;
+  const lastMonth = { start: D.dates[Math.max(0, D.dates.length - 22)], end: d.meta.as_of };
+  const monthAgg = aggregate(lastMonth).assets;
+  const unusual = Object.entries(flowPercentiles(lastMonth))
+    .filter(([tk, p]) => (p >= 97 || p <= 3) && tk !== "STABLES" && monthAgg[tk] && monthAgg[tk].net_flow_bn != null)
+    .sort((a, z) => Math.abs(z[1] - 50) - Math.abs(a[1] - 50)).slice(0, 3);
+  if (unusual.length) {
+    items.push(["Unusual flows: ", `${unusual.map(([tk, p]) => `${assetName(tk)} ${p >= 50 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(monthAgg[tk].net_flow_bn))} (${fmtPct(Math.abs(monthAgg[tk].intensity), 1, false)} of the fund, ${ordinal(p)} percentile)`).join("; ")} over the past month, compared with every month in three years.`]);
+  }
   const crowded = (d.positioning || []).map((p) => ({ p, c: crowding(p, { end: d.meta.as_of }) }))
     .filter((r) => r.c && (r.c.pct >= 85 || r.c.pct <= 15))
     .sort((a, z) => Math.abs(z.c.pct - 50) - Math.abs(a.c.pct - 50));
@@ -573,7 +603,7 @@ function renderKpis() {
     { info: "vix", label: "VIX", value: fmtNum(k.vix, 1), delta: "Implied S&P 500 volatility" },
     { info: "btc", label: `Bitcoin, ${rangeShort()}${state.real ? ", real" : ""}`, value: fmtPct(agg["BTC-USD"] && agg["BTC-USD"].ret), delta: "Crypto risk appetite" },
     cashTile("stablecoins", "Stablecoin supply"),
-    cashTile("retail_mmf", "Money funds"),
+    state.data.cash.mmf_total ? cashTile("mmf_total", "Money market funds") : cashTile("retail_mmf", "Money funds"),
     cashTile("net_liquidity", "Fed net liquidity"),
   ];
   const root = $("#kpis");
@@ -1014,6 +1044,12 @@ function renderWheel(t) {
       if (matrix[d.index][j] > 0) rows.push([`→ ${other}`, fmtUsdBn(matrix[d.index][j])]);
       if (matrix[j][d.index] > 0) rows.push([`← ${other}`, fmtUsdBn(matrix[j][d.index])]);
     });
+    // How much money the class's tracked funds hold, so sizes can be read in context.
+    if (g !== SIDELINES) {
+      const held = Object.entries(aggregate().assets).filter(([tk, a]) => state.assets[tk] && state.assets[tk].group === g && a.aum_bn != null)
+        .reduce((acc, [, a]) => acc + a.aum_bn, 0);
+      if (held > 0) rows.push(["Fund assets tracked", fmtUsdBn(held)]);
+    }
     // Which markets inside the class drove it (the sidelines hold no markets).
     if (view.marketNets && g !== SIDELINES) {
       const movers = state.data.assets.filter((a) => a.group === g && view.marketNets[a.ticker] != null)
@@ -1131,77 +1167,140 @@ function renderWheel(t) {
     .text(view.hub);
 }
 
-// ---------- rotation map ----------
+// ---------- flows vs returns ----------
 
-function renderSankey(t) {
-  const w = aggregate();
-  const sk = allocateFlows(Object.fromEntries(Object.entries(w.assets).map(([k, a]) => [k, a.net_flow_bn])));
-  $("#sankey-sub").textContent =
-    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} pulled out of funds, ${fmtUsdBn(sk.total_in_bn)} put in.${dollarsNote()}`;
-  const ids = new Set();
-  sk.links.forEach((l) => { ids.add(l.source); ids.add(l.target); });
-  const nodeTotals = {};
-  sk.links.forEach((l) => {
-    nodeTotals[l.source] = (nodeTotals[l.source] || 0) + l.value;
-    nodeTotals[l.target] = (nodeTotals[l.target] || 0) + l.value;
-  });
-  const sources = new Set(sk.links.map((l) => l.source));
-  const c = chart("chart-sankey");
-  const narrow = document.getElementById("chart-sankey").clientWidth < 560;
-  c.clear();
-  if (!sk.links.length) {
-    c.setOption({ title: { text: "No net flows in this window", left: "center", top: "middle", textStyle: { color: t.muted, fontSize: 13, fontWeight: 400 } } });
-  } else {
-    c.setOption({
-      tooltip: {
-        ...tooltipBase(t),
-        trigger: "item",
-        formatter: (p) => {
-          if (p.dataType === "edge") {
-            return `<div style="margin-bottom:4px">${esc(assetName(p.data.source))} → ${esc(assetName(p.data.target))}</div>` +
-              row("Allocated flow", fmtUsdBn(p.data.value));
-          }
-          const out = sources.has(p.name);
-          return `<div style="margin-bottom:4px">${esc(assetName(p.name))}</div>` +
-            row(out ? "Net selling" : "Net buying", fmtUsdBn(nodeTotals[p.name]));
-        },
-      },
-      series: [{
-        type: "sankey",
-        left: narrow ? 92 : 150,
-        right: narrow ? 92 : 150,
-        top: 8,
-        bottom: 8,
-        nodeWidth: 10,
-        nodeGap: 8,
-        draggable: false,
-        layoutIterations: 64,
-        emphasis: { focus: "adjacency" },
-        levels: [
-          { depth: 0, label: { position: "left" } },
-          { depth: 1, label: { position: "right" } },
-        ],
-        label: {
-          color: t.text,
-          fontSize: narrow ? 11 : 12,
-          width: narrow ? 84 : undefined,
-          overflow: "truncate",
-          formatter: (p) => (narrow ? shortName(p.name) : `${shortName(p.name)}  {v|${fmtUsdBn(nodeTotals[p.name])}}`),
-          rich: { v: { color: t.text2, fontSize: 11 } },
-        },
-        labelLayout: { hideOverlap: true },
-        itemStyle: { borderWidth: 0 },
-        lineStyle: { color: "source", opacity: 0.28, curveness: 0.5 },
-        data: [...ids].map((id) => ({ name: id, itemStyle: { color: assetColor(id, t) } })),
-        links: sk.links.map((l) => ({ ...l })),
-      }],
-    }, true);
+// How unusual each fund's flow over the range is: where its net flow, as a share of the
+// fund, ranks among every window of the same length in the last three years of daily
+// data (0 = the biggest outflow, 100 = the biggest inflow). Empty for longer ranges.
+function flowPercentiles(b = rangeBounds()) {
+  const D = state.data.series.daily;
+  const key = `${b.start}|${b.end}|${b.inclusive ? 1 : 0}`;
+  if (state.pctCache && state.pctCache.key === key) return state.pctCache.value;
+  const out = {};
+  const idx = b.start >= D.dates[0] ? D.dates.map((d, i) => (inRange(d, b) ? i : -1)).filter((i) => i >= 0) : [];
+  const n = idx.length;
+  if (n && D.dates.length - n >= 60) {
+    const end = idx[n - 1];
+    Object.keys(D.flow).forEach((t) => {
+      const f = D.flow[t];
+      const a = D.aum[t];
+      const sums = [0];
+      f.forEach((v, i) => sums.push(sums[i] + (v || 0)));
+      const share = (j) => (a[j - n + 1] > 0 && f[j] != null ? (sums[j + 1] - sums[j - n + 1]) / a[j - n + 1] : null);
+      const now = share(end);
+      if (now == null) return;
+      const past = [];
+      for (let j = n - 1; j < D.dates.length; j += 1) {
+        const v = share(j);
+        if (v != null) past.push(v);
+      }
+      if (past.length < 60) return;
+      out[t] = ((past.filter((v) => v < now).length + 0.5 * past.filter((v) => v === now).length) / past.length) * 100;
+    });
   }
+  state.pctCache = { key, value: out };
+  return out;
+}
+
+function pctText(p) {
+  return p == null ? "–" : `${ordinal(p)} percentile`;
+}
+
+const QUADRANTS = [
+  [1, 1, "Chasing strength", "Money going into a fund that is rising"],
+  [-1, 1, "Buying the dip", "Money going into a fund that is falling"],
+  [1, -1, "Taking profits", "Money leaving a fund that is rising"],
+  [-1, -1, "Capitulation", "Money leaving a fund that is falling"],
+];
+
+function quadrantOf(v) {
+  return QUADRANTS.find(([x, y]) => Math.sign(v.ret || 0) === x && Math.sign(v.intensity || 0) === y) || QUADRANTS[0];
+}
+
+// Flows against returns: is money chasing what rises, buying the dip, taking profits or
+// capitulating? One dot per fund with real flow data, sized by the fund.
+function renderQuadrant(t) {
+  const w = aggregate();
+  const pct = flowPercentiles();
+  const rows = Object.entries(w.assets)
+    .filter(([k, v]) => k !== "STABLES" && v.intensity != null && v.ret != null)
+    .map(([k, v]) => ({ k, v }));
+  $("#quadrant-sub").textContent = `${fmtRange(w.start, w.end)}. Each dot is a fund: across is its return, up is net money in as a share of the fund, size is the fund's size.${dollarsNote()}`;
+  const c = chart("chart-quadrant");
+  if (!rows.length) {
+    emptyChart(c, t, "No fund flows in this range");
+    table(cardTable("quadrant"), ["Market"], []);
+    return;
+  }
+  const maxAum = Math.max(...rows.map((r) => r.v.aum_bn || 0)) || 1;
+  // Phones: name only the biggest movers and the S&P 500, so labels don't pile up.
+  const named = new Set(narrowScreen()
+    ? ["SPY", ...rows.slice().sort((a, z) => Math.abs(z.v.intensity) - Math.abs(a.v.intensity)).slice(0, 6).map((r) => r.k)]
+    : rows.map((r) => r.k));
+  const size = (aum) => 8 + 34 * Math.sqrt((aum || 0) / maxAum);
+  const xs = rows.map((r) => r.v.ret);
+  const ys = rows.map((r) => r.v.intensity);
+  // Padded so labels fit, with both ends on a round tick and zero always in view.
+  const nice = (vals) => {
+    const lo = Math.min(0, ...vals);
+    const hi = Math.max(0, ...vals);
+    const raw = (hi - lo) / (narrowScreen() ? 3 : 5) || 0.01;
+    const mag = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= raw);
+    const pad = (hi - lo) * 0.08;
+    return [Math.floor((lo - pad) / step) * step, Math.ceil((hi + pad) / step) * step, step];
+  };
+  const [x0, x1, xStep] = nice(xs);
+  const [y0, y1, yStep] = nice(ys);
+  const digits = (step) => (Math.abs(Math.round(step * 100) - step * 100) > 1e-9 ? 1 : 0);
+  const corner = (text, pos) => ({ name: text, label: { show: true, position: pos, color: t.muted, fontSize: 11, formatter: text } });
+  c.setOption({
+    grid: { left: 8, right: 16, top: 16, bottom: 28, containLabel: true },
+    tooltip: {
+      ...tooltipBase(t),
+      trigger: "item",
+      formatter: (p) => {
+        if (p.componentType !== "series") return "";
+        const r = rows[p.dataIndex];
+        return `<div style="margin-bottom:4px">${esc(assetName(r.k))}</div>` +
+          row("Return", fmtPct(r.v.ret)) +
+          row("Net flow", fmtUsdBn(r.v.net_flow_bn, true)) +
+          row("Share of fund", fmtPct(r.v.intensity, 1)) +
+          (pct[r.k] != null ? row("How unusual", pctText(pct[r.k])) : "") +
+          row("Fund size", fmtUsdBn(r.v.aum_bn)) +
+          `<div style="margin-top:6px;opacity:.7">${esc(quadrantOf(r.v)[2])}</div>`;
+      },
+    },
+    xAxis: { type: "value", min: x0, max: x1, interval: xStep, ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, digits(xStep)) } },
+    yAxis: { type: "value", min: y0, max: y1, interval: yStep, ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPct(v, digits(yStep)) } },
+    series: [{
+      type: "scatter",
+      data: rows.map((r) => ({
+        value: [r.v.ret, r.v.intensity],
+        symbolSize: size(r.v.aum_bn),
+        itemStyle: { color: assetColor(r.k, t), opacity: 0.85, borderColor: t.surface, borderWidth: 1 },
+        label: { show: named.has(r.k), position: "right", color: t.text2, fontSize: 11, formatter: () => shortName(r.k) },
+      })),
+      labelLayout: { hideOverlap: true },
+      markLine: { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ xAxis: 0 }, { yAxis: 0 }] },
+      markArea: {
+        silent: true,
+        itemStyle: { color: "transparent" },
+        data: [
+          [{ ...corner("Chasing strength", "insideTopRight"), coord: [0, 0] }, { coord: [x1, y1] }],
+          [{ ...corner("Buying the dip", "insideTopLeft"), coord: [x0, 0] }, { coord: [0, y1] }],
+          [{ ...corner("Taking profits", "insideBottomRight"), coord: [0, y0] }, { coord: [x1, 0] }],
+          [{ ...corner("Capitulation", "insideBottomLeft"), coord: [x0, y0] }, { coord: [0, 0] }],
+        ],
+      },
+    }],
+  }, true);
   c.off("click");
-  c.on("click", (p) => { if (p.dataType === "node" && p.name !== SIDELINES) openCloseup(p.name); });
-  table(cardTable("sankey"), ["From", "To", "Allocated flow"],
-    sk.links.slice().sort((a, b) => b.value - a.value)
-      .map((l) => [assetName(l.source), assetName(l.target), fmtUsdBn(l.value)]));
+  c.on("click", (p) => { if (p.componentType === "series") openCloseup(rows[p.dataIndex].k); });
+  table(cardTable("quadrant"), ["Market", "Return", "Net flow", "Share of fund", "How unusual", "Reading"],
+    rows.slice().sort((a, z) => z.v.intensity - a.v.intensity).map((r) => [
+      assetName(r.k), fmtPct(r.v.ret), fmtUsdBn(r.v.net_flow_bn, true), fmtPct(r.v.intensity, 1), pctText(pct[r.k]), quadrantOf(r.v)[2],
+    ]));
 }
 
 // Horizontal bar value axis: padded so end labels have room, with a tick step chosen
@@ -1259,6 +1358,7 @@ function renderIntensity(t) {
     .sort((a, b) => a[1].intensity - b[1].intensity);
   const vals = rows.map(([, v]) => v.intensity);
   const intensityLabel = barLabel(t, vals, 1);
+  const pct = flowPercentiles();
   const c = chart("chart-intensity");
   c.setOption({
     grid: barGrid(),
@@ -1271,7 +1371,8 @@ function renderIntensity(t) {
           row("Net flow, share of fund", fmtPct(v.intensity)) +
           row("Net flow", fmtUsdBn(v.net_flow_bn, true)) +
           row("Fund size at start", fmtUsdBn(v.aum_bn)) +
-          row("Return", fmtPct(v.ret));
+          row("Return", fmtPct(v.ret)) +
+          (pct[rows[p.dataIndex][0]] != null ? row("How unusual", pctText(pct[rows[p.dataIndex][0]])) : "");
       },
     },
     xAxis: barValueAxis(t, vals),
@@ -1297,9 +1398,9 @@ function renderIntensity(t) {
   }, true);
   c.off("click");
   c.on("click", (p) => openCloseup(rows[p.dataIndex][0]));
-  table(cardTable("intensity"), ["Market", "Share of fund", "Net flow", "Fund size", "Return"],
+  table(cardTable("intensity"), ["Market", "Share of fund", "Net flow", "Fund size", "Return", "How unusual"],
     rows.slice().reverse().map(([k, v]) => [
-      assetName(k), fmtPct(v.intensity), fmtUsdBn(v.net_flow_bn, true), fmtUsdBn(v.aum_bn), fmtPct(v.ret),
+      assetName(k), fmtPct(v.intensity), fmtUsdBn(v.net_flow_bn, true), fmtUsdBn(v.aum_bn), fmtPct(v.ret), pctText(pct[k]),
     ]));
 }
 
@@ -2431,7 +2532,7 @@ function renderPerformance(t) {
   const p = performanceInRange();
   const tickers = REPRESENTATIVES.filter((tk) => p.series[tk]);
   chart("chart-performance").setOption(lineOptions(t, {
-    series: tickers.map((tk) => lineSeries(t, assetName(tk), p.dates.map((d, i) => [d, p.series[tk][i]]), assetColor(tk, t))),
+    series: tickers.map((tk) => lineSeries(t, shortName(tk), p.dates.map((d, i) => [d, p.series[tk][i]]), assetColor(tk, t))),
     yFormatter: (v) => v.toFixed(0),
     valueFormatter: (v) => v.toFixed(1),
   }), true);
@@ -2456,7 +2557,7 @@ function renderCorrelation(t) {
     return true;
   });
   chart("chart-correlation").setOption(lineOptions(t, {
-    series: tickers.map((tk, idx) => lineSeries(t, assetName(tk), c.dates.map((d, i) => [d, c.series[tk][i]]), assetColor(tk, t), idx === 0 ? {
+    series: tickers.map((tk, idx) => lineSeries(t, shortName(tk), c.dates.map((d, i) => [d, c.series[tk][i]]), assetColor(tk, t), idx === 0 ? {
       markLine: { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ yAxis: 0 }] },
     } : {})),
     yMin: -1,
@@ -2494,7 +2595,7 @@ function renderAll() {
   syncRangeControls();
   safely("headline", renderKpis);
   safely("liquidity wheel", renderWheel, t);
-  safely("rotation map", renderSankey, t);
+  safely("flows vs returns", renderQuadrant, t);
   safely("flow share", renderIntensity, t);
   safely("liquidity history", renderHistory, t);
   safely("market close-up", renderCloseup, t);
@@ -2750,10 +2851,27 @@ function wireControls() {
       Object.values(state.charts).forEach((c) => c.resize());
       if (state.data) {
         safely("liquidity wheel", renderWheel, theme());
-        safely("rotation map", renderSankey, theme());
+        safely("flows vs returns", renderQuadrant, theme());
       }
     }, 120);
   });
+}
+
+// Latest observation per source, flagged when it is later than its usual publishing lag.
+function renderFreshness(data) {
+  const list = $("#freshness");
+  const rows = (data.meta && data.meta.freshness) || [];
+  list.closest("div").hidden = !rows.length;
+  const lag = { daily: 5, weekly: 12, "weekly, as of Tuesday": 14, monthly: 70 };
+  list.replaceChildren(...rows.map((r) => {
+    const li = document.createElement("li");
+    const late = (parseDay(data.meta.as_of) - parseDay(r.as_of)) / 864e5 > (lag[r.cadence] || 70);
+    const b = document.createElement("strong");
+    b.textContent = `${r.name}: `;
+    li.append(b, document.createTextNode(`${fmtDate(r.as_of)} (${r.cadence})${late ? " · later than usual" : ""}`));
+    if (late) li.classList.add("late");
+    return li;
+  }));
 }
 
 async function main() {
@@ -2804,6 +2922,7 @@ async function main() {
   }
   $("#sources").textContent = "Sources: " + data.meta.sources.map((s) => `${s.name} (${s.detail})`).join(" · ") +
     `. Generated ${data.meta.generated_at}.`;
+  renderFreshness(data);
 
   renderAll();
 }

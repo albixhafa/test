@@ -257,6 +257,23 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
     rates = {sid: {"name": cfg["name"], "unit": cfg["unit"], "points": _weekly_points(macro[sid][macro[sid].index >= "2016-01-01"], 3)}
              for sid, cfg in RATES_SERIES.items() if sid in macro and not macro[sid].empty}
 
+    # The latest observation from each source, so readers can see how fresh each panel is.
+    def last_date(*series):
+        dates = [x.dropna().index.max() for x in series if x is not None and len(x.dropna())]
+        return max(dates).strftime("%Y-%m-%d") if dates else None
+
+    freshness = [
+        {"name": "Prices (Yahoo Finance)", "as_of": calendar[-1].strftime("%Y-%m-%d"), "cadence": "daily"},
+        {"name": "Fund flows (State Street)", "as_of": last_date(*[f["shares"] for f in funds.values()]), "cadence": "daily"},
+        {"name": "Stablecoin supply (DefiLlama)", "as_of": last_date(stable), "cadence": "daily"},
+        {"name": "Futures positioning (CFTC)", "as_of": last_date(*[c["spec_net"] for c in cftc.values()]), "cadence": "weekly, as of Tuesday"},
+        {"name": "Money market funds (OFR)", "as_of": last_date(macro.get("MMF_TOTAL")), "cadence": "monthly"},
+        {"name": "Fed balance sheet and TGA (FRED)", "as_of": last_date(macro.get("WALCL")), "cadence": "weekly"},
+        {"name": "Treasury yields (FRED)", "as_of": last_date(macro.get("DGS10")), "cadence": "daily"},
+        {"name": "Consumer prices (FRED)", "as_of": last_date(macro.get("CPIAUCSL")), "cadence": "monthly"},
+    ]
+    freshness = [f for f in freshness if f["as_of"]]
+
     return {
         "meta": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -265,6 +282,7 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
             "sources": SOURCES,
             "warnings": log,
             "benchmark": BENCHMARK,
+            "freshness": freshness,
         },
         "groups": GROUPS,
         "balance_group": BALANCE_GROUP,
@@ -290,7 +308,8 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
             "threshold": SELLOFF_THRESHOLD,
             "rebound_days": REBOUND_DAYS,
             "episodes": episodes,
-            "playbook": an.playbook(episodes, tickers),
+            # Stablecoins have no price, so they sit out the selloff returns.
+            "playbook": an.playbook(episodes, [t for t in tickers if t != "STABLES"]),
         },
     }
 

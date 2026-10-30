@@ -185,8 +185,10 @@ def generate(start="2016-01-01", end=None, seed=7):
         "sp500": (300e3, 2.0e6, "tff"), "nasdaq": (40e3, 2.5e5, "tff"), "ust10": (-500e3, 4.5e6, "tff"),
         "ustbond": (-150e3, 1.8e6, "tff"), "dollar": (15e3, 3.0e4, "tff"), "bitcoin": (-1.5e3, 2.5e4, "tff"),
         "gold": (150e3, 5.0e5, "disagg"), "crude": (200e3, 1.8e6, "disagg"),
+        "vix": (-60e3, 4.0e5, "tff"), "yen": (-50e3, 2.5e5, "tff"), "euro": (60e3, 7.0e5, "tff"),
     }.items():
-        weekly_trend = trend.resample("W-TUE").last().dropna()
+        # Weekly readings dated by their last day, so none sits in the future.
+        weekly_trend = trend.dropna().groupby(pd.Grouper(freq="W-TUE")).tail(1)
         noise = np.cumsum(rng.standard_normal(len(weekly_trend))) * 0.05
         spec = scale * (np.tanh(weekly_trend.to_numpy() * 8) * 0.6 + noise)
         frame = pd.DataFrame({"spec_net": np.round(spec), "open_interest": oi * (1 + 0.1 * rng.standard_normal(len(spec)))},
