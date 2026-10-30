@@ -234,7 +234,54 @@ function wheelHeadline(wheel, windowKey) {
   return `${fmtUsdBn(-out)} left ${source} over the past ${span}, mostly into ${where}`;
 }
 
+// Money flowing through the wheel: dots travel along each ribbon from source to target.
+// Respects reduced motion (starts paused), can be paused, and only runs while on screen.
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+state.flowPaused = reducedMotion.matches;
+state.wheelVisible = true;
+let flowFrame = null;
+let flowParticles = [];
+let flowClock = 0;
+
+function stopFlow() {
+  if (flowFrame) cancelAnimationFrame(flowFrame);
+  flowFrame = null;
+}
+
+function runFlow() {
+  stopFlow();
+  const layer = document.querySelector("#chart-wheel .flows");
+  if (layer) layer.style.display = state.flowPaused ? "none" : "";
+  if (state.flowPaused || !state.wheelVisible || !flowParticles.length) return;
+  const start = performance.now() - flowClock;
+  const tick = (now) => {
+    flowClock = now - start;
+    const s = flowClock / 1000;
+    for (const p of flowParticles) {
+      // Quadratic Bezier through the centre, the same curve the ribbons follow.
+      const u = (s / p.duration + p.phase) % 1;
+      const a = (1 - u) * (1 - u);
+      const b = u * u;
+      p.node.setAttribute("cx", (a * p.x0 + b * p.x1).toFixed(1));
+      p.node.setAttribute("cy", (a * p.y0 + b * p.y1).toFixed(1));
+      p.node.setAttribute("opacity", Math.min(1, Math.sin(Math.PI * u) * 1.8).toFixed(2));
+    }
+    flowFrame = requestAnimationFrame(tick);
+  };
+  flowFrame = requestAnimationFrame(tick);
+}
+
+function setFlowPaused(paused) {
+  state.flowPaused = paused;
+  const btn = $("#flow-toggle");
+  btn.textContent = paused ? "Play flow" : "Pause flow";
+  btn.setAttribute("aria-pressed", String(paused));
+  runFlow();
+}
+
 function renderWheel(t) {
+  stopFlow();
+  flowParticles = [];
   const w = state.data.windows[state.window];
   const wheel = w.wheel;
   const groups = state.data.groups;
@@ -299,7 +346,8 @@ function renderWheel(t) {
     .sortSubgroups(d3.descending)
     .sortChords(d3.descending)(matrix);
   const arc = d3.arc().innerRadius(inner).outerRadius(outer).cornerRadius(3);
-  const ribbon = d3.ribbonArrow().radius(inner - 3).padAngle(1 / inner).headRadius(Math.min(16, inner * 0.08));
+  const head = Math.min(16, inner * 0.08);
+  const ribbon = d3.ribbonArrow().radius(inner - 3).padAngle(1 / inner).headRadius(head);
 
   const svg = d3.select(el).append("svg")
     .attr("viewBox", [-width / 2, -height / 2, width, height])
@@ -320,6 +368,39 @@ function renderWheel(t) {
       showTip(`${groups[d.source.index]} → ${groups[d.target.index]}`, [["Estimated flow", fmtUsdBn(d.source.value)]], ev.clientX, ev.clientY);
     })
     .on("pointerleave", leave);
+
+  // Flow dots: count proportional to each ribbon's share of the total, spread across its width.
+  const budget = narrow ? 60 : 110;
+  const flows = svg.append("g").attr("class", "flows").attr("pointer-events", "none");
+  const flowGroups = flows.selectAll("g").data(chords).join("g");
+  flowGroups.each(function (c) {
+    const n = Math.max(1, Math.round((budget * c.source.value) / wheel.total_bn));
+    const rs = inner - 3;
+    const rt = inner - 3 - head * 0.6;
+    for (let i = 0; i < n; i++) {
+      const f = 0.15 + 0.7 * Math.random();
+      const sa = c.source.startAngle + f * (c.source.endAngle - c.source.startAngle);
+      const ta = c.target.startAngle + f * (c.target.endAngle - c.target.startAngle);
+      // Neutral ink so the dots read against their own ribbon; the ribbon carries identity.
+      const node = d3.select(this).append("circle")
+        .attr("r", narrow ? 2.6 : 3.2)
+        .attr("fill", t.text)
+        .attr("fill-opacity", 0.85)
+        .attr("stroke", t.surface)
+        .attr("stroke-width", 1)
+        .attr("opacity", 0)
+        .node();
+      flowParticles.push({
+        node,
+        x0: Math.sin(sa) * rs,
+        y0: -Math.cos(sa) * rs,
+        x1: Math.sin(ta) * rt,
+        y1: -Math.cos(ta) * rt,
+        phase: (i + Math.random() * 0.6) / n,
+        duration: 2.6 + Math.random() * 0.8,
+      });
+    }
+  });
 
   const arcs = svg.append("g").selectAll("g").data(chords.groups.filter((g) => g.value > 0)).join("g")
     .attr("class", "arc")
@@ -352,14 +433,17 @@ function renderWheel(t) {
 
   function highlightClass(i) {
     ribbons.attr("fill-opacity", (c) => (c.source.index === i || c.target.index === i ? 0.85 : 0.06));
+    flowGroups.attr("opacity", (c) => (c.source.index === i || c.target.index === i ? 1 : 0.08));
     arcs.attr("opacity", (g) => (g.index === i || matrix[i][g.index] || matrix[g.index][i] ? 1 : 0.35));
   }
   function highlightRibbon(d) {
     ribbons.attr("fill-opacity", (c) => (c === d ? 0.9 : 0.06));
+    flowGroups.attr("opacity", (c) => (c === d ? 1 : 0.08));
     arcs.attr("opacity", (g) => (g.index === d.source.index || g.index === d.target.index ? 1 : 0.35));
   }
   function reset() {
     ribbons.attr("fill-opacity", 0.62);
+    flowGroups.attr("opacity", 1);
     arcs.attr("opacity", 1);
   }
   // A tap ends with pointerleave straight away; keep touch details up until the next tap elsewhere.
@@ -423,6 +507,8 @@ function renderWheel(t) {
     });
 
   // Hub: the total that moved, haloed so it reads on top of the ribbons.
+  runFlow();
+
   const hub = svg.append("g")
     .attr("pointer-events", "none")
     .attr("text-anchor", "middle")
@@ -976,6 +1062,16 @@ function wireControls() {
     applyTheme(mode);
     renderAll();
   });
+  setFlowPaused(state.flowPaused);
+  $("#flow-toggle").addEventListener("click", () => setFlowPaused(!state.flowPaused));
+  reducedMotion.addEventListener("change", (e) => setFlowPaused(e.matches));
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(([entry]) => {
+      state.wheelVisible = entry.isIntersecting;
+      runFlow();
+    }).observe(document.getElementById("chart-wheel"));
+  }
+
   document.addEventListener("pointerdown", (ev) => {
     if (state.wheelReset && !ev.target.closest("#chart-wheel")) state.wheelReset();
   });

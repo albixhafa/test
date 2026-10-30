@@ -51,7 +51,10 @@
             <h3 id="wheel-headline"></h3>
             <p class="muted small" id="wheel-sub"></p>
           </div>
-          <button type="button" class="ghost small table-toggle">Table</button>
+          <div class="card-actions">
+            <button type="button" class="ghost small" id="flow-toggle">Pause flow</button>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </div>
         </header>
         <div class="wheel-layout">
           <div class="chart wheel" id="chart-wheel"></div>
@@ -59,7 +62,7 @@
             <h4 class="small muted">Net in and out, by class</h4>
             <ul class="wheel-classes" id="wheel-classes"></ul>
             <p class="muted small">Arc length is how much moved through a class; ribbons point from where money left to where
-              it went. Hover, tap or tab to a class to trace its flows. Cash is the balancing account: selling that no other
+              it went, and the moving dots show that money in motion. Hover, tap or tab to a class to trace its flows. Cash is the balancing account: selling that no other
               market absorbed counts as moving to cash.</p>
           </div>
         </div>
