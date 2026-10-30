@@ -692,14 +692,14 @@ function fmtPool(v) {
   return a >= 9950 ? `$${(a / 1000).toFixed(0)}T` : a >= 999.5 ? `$${(a / 1000).toFixed(1)}T` : fmtUsdBn(a);
 }
 
-// The months to draw: the selected range, widened to at least a year because the data
-// is monthly.
+// The months in the selected range; a range shorter than a month shows the month it ends in.
 function poolPeriods() {
   const P = state.data.pools;
   const idx = P.dates.map((_, i) => i);
   const b = rangeBounds();
   let shown = idx.filter((i) => inRange(P.dates[i], b));
-  if (shown.length < 12) shown = idx.filter((i) => P.dates[i] <= b.end).slice(-12);
+  if (!shown.length) shown = idx.filter((i) => P.dates[i] >= b.end).slice(0, 1);
+  if (!shown.length) shown = idx.slice(-1);
   return { P, shown };
 }
 
@@ -760,6 +760,7 @@ function renderPools(t) {
       type: "bar",
       stack: "all",
       barCategoryGap: shown.length > 40 ? "10%" : "22%",
+      barMaxWidth: 72,
       itemStyle: { color: poolColor(t, g) },
       data: shown.map((i, j) => {
         const v = val(g, i);
