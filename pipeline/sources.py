@@ -117,3 +117,79 @@ def parse_defillama_stablecoins(payload):
 def fetch_stablecoin_supply():
     """Total USD-pegged stablecoin supply in billions (DefiLlama)."""
     return parse_defillama_stablecoins(_get("https://stablecoins.llama.fi/stablecoincharts/all").json())
+
+
+SSGA_NAV_HISTORY = "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/navhist-us-en-{}.xlsx"
+
+
+def parse_ssga_nav_history(content):
+    """State Street's NAV history workbook -> daily nav, shares and aum (USD), oldest first.
+
+    The sheet opens with a few lines of fund details, then a Date / NAV / Shares
+    Outstanding / Total Net Assets table, then disclaimers; only the table is kept.
+    """
+    import openpyxl
+
+    ws = openpyxl.load_workbook(io.BytesIO(content), read_only=True).worksheets[0]
+    rows, header = [], None
+    for row in ws.iter_rows(values_only=True):
+        if header is None:
+            if row and row[0] == "Date":
+                header = [str(c).strip() if c is not None else "" for c in row]
+            continue
+        cell = row[0] if row else None
+        if isinstance(cell, str):
+            date = pd.to_datetime(cell.strip(), format="%d-%b-%Y", errors="coerce")
+        else:
+            date = pd.Timestamp(cell) if hasattr(cell, "year") else pd.NaT
+        if pd.isna(date):
+            if rows:
+                break
+            continue
+        rows.append((date, row[header.index("NAV")], row[header.index("Shares Outstanding")],
+                     row[header.index("Total Net Assets")]))
+    if not rows:
+        raise ValueError("no NAV history table found")
+    df = pd.DataFrame(rows, columns=["date", "nav", "shares", "aum"]).set_index("date").sort_index()
+    df = df[~df.index.duplicated(keep="last")].apply(pd.to_numeric, errors="coerce").dropna()
+    return df
+
+
+def fetch_ssga(code):
+    return parse_ssga_nav_history(_get(SSGA_NAV_HISTORY.format(code)).content)
+
+
+CFTC_DATASETS = {"tff": "gpe5-46if", "disagg": "72hh-3qpy"}
+CFTC_FIELDS = {
+    "tff": {"lev_long": "lev_money_positions_long", "lev_short": "lev_money_positions_short",
+            "am_long": "asset_mgr_positions_long", "am_short": "asset_mgr_positions_short"},
+    "disagg": {"lev_long": "m_money_positions_long_all", "lev_short": "m_money_positions_short_all"},
+}
+
+
+def parse_cftc(rows, report):
+    """CFTC Socrata rows -> weekly frame of speculative (and asset manager) net positions."""
+    fields = CFTC_FIELDS[report]
+    df = pd.DataFrame(rows)
+    out = pd.DataFrame(index=pd.to_datetime(df["report_date_as_yyyy_mm_dd"]).dt.normalize())
+    num = lambda col: pd.to_numeric(df[col], errors="coerce").to_numpy()  # noqa: E731
+    out["spec_net"] = num(fields["lev_long"]) - num(fields["lev_short"])
+    if "am_long" in fields:
+        out["am_net"] = num(fields["am_long"]) - num(fields["am_short"])
+    out["open_interest"] = num("open_interest_all")
+    out.index.name = "date"
+    return out[~out.index.duplicated(keep="last")].sort_index()
+
+
+def fetch_cftc(report, code, start):
+    fields = ["report_date_as_yyyy_mm_dd", "open_interest_all", *CFTC_FIELDS[report].values()]
+    params = {
+        "$select": ",".join(fields),
+        "$where": f"cftc_contract_market_code='{code}' AND report_date_as_yyyy_mm_dd >= '{start}'",
+        "$order": "report_date_as_yyyy_mm_dd",
+        "$limit": 5000,
+    }
+    rows = _get(f"https://publicreporting.cftc.gov/resource/{CFTC_DATASETS[report]}.json", params).json()
+    if not rows:
+        raise ValueError(f"no CFTC rows for {code}")
+    return parse_cftc(rows, report)

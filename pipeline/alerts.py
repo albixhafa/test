@@ -14,6 +14,7 @@ import sys
 SITE = os.environ.get("SITE_URL", "https://albixhafa.github.io/test/")
 EXTREME_Z = 2.0
 BIG_WEEK_QUANTILE = 0.95
+CROWDED_PCT = 95
 
 
 def _pct(x):
@@ -71,6 +72,19 @@ def detect_events(prev, cur):
         if abs(z) >= EXTREME_Z and (old is None or abs(old) < EXTREME_Z):
             events.append(("signal", f"Extreme reading: {name} ({z:+.1f})",
                            f"{name} is {abs(z):.1f} standard deviations {'above' if z > 0 else 'below'} its past-year norm."))
+
+    # Futures positioning newly at the edge of its three-year range (crowded trades).
+    before_pos = {p["key"]: p.get("percentile") for p in prev.get("positioning") or []}
+    for p in cur.get("positioning") or []:
+        pct, old = p.get("percentile"), before_pos.get(p["key"])
+        if pct is None or old is None:
+            continue
+        for side, hit, was in (("longest", pct >= CROWDED_PCT, old >= CROWDED_PCT),
+                               ("shortest", pct <= 100 - CROWDED_PCT, old <= 100 - CROWDED_PCT)):
+            if hit and not was:
+                events.append(("positioning", f"{p['who']} are near their {side} in {p['name']}",
+                               f"Their net position is in the {pct:.0f}th percentile of the past three years. "
+                               "Crowded positions can unwind fast."))
     return events
 
 

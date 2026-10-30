@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Liquidity Flow Monitor</title>
-  <meta name="description" content="Where money goes when markets sell off: cross-asset rotation across stocks, bonds, gold, the dollar and crypto.">
+  <meta name="description" content="Where money goes when markets sell off: real fund flows, futures positioning and cash across stocks, bonds, gold and crypto.">
   <link rel="stylesheet" href="styles.css?v=dev">
   <!-- Self-hosted so the charts never depend on a third-party CDN being reachable. -->
   <!-- Deferred so the page lays out before the chart libraries finish loading; order is kept. -->
@@ -35,7 +35,9 @@
       <a href="#markets">Markets</a>
       <a href="#selloffs">Selloffs</a>
       <a href="#outlook">Outlook</a>
+      <a href="#positioning">Positioning</a>
       <a href="#cash">Cash</a>
+      <a href="#rates">Rates</a>
       <a href="#risk">Risk</a>
       <a href="#guide">Guide</a>
     </div>
@@ -72,7 +74,7 @@
       <div class="section-head">
         <div>
           <h2>The liquidity wheel</h2>
-          <p class="muted">Money moving between stocks, bonds, cash, gold, crypto and the dollar.</p>
+          <p class="muted">Real money moving between stocks, bonds, cash, gold and crypto, and in from or out to the sidelines.</p>
         </div>
       </div>
       <article class="card" data-card="wheel">
@@ -98,8 +100,7 @@
             <h4 class="small muted">Net in and out, by class</h4>
             <ul class="wheel-classes" id="wheel-classes"></ul>
             <p class="muted small">Arc length is how much moved through a class; ribbons point from where money left to where
-              it went, and the moving dots show that money in motion. Hover, tap or tab to a class to trace its flows. Cash is the balancing account: selling that no other
-              market absorbed counts as moving to cash.</p>
+              it went, and the moving dots show that money in motion. Hover, tap or tab to a class to trace its flows. The sidelines balance the wheel: money entering the tracked funds from outside, or leaving them altogether.</p>
           </div>
         </div>
         <div class="table-wrap" hidden></div>
@@ -159,8 +160,8 @@
         <article class="card" data-card="intensity">
           <header class="card-head">
             <div>
-              <h3>Buying vs selling pressure</h3>
-              <p class="muted small">Net buying or selling as a share of all trading in the selected range. Returns are in the table.</p>
+              <h3>Flow as a share of each fund</h3>
+              <p class="muted small" id="intensity-sub">Net money in or out over the selected range, divided by the fund's size, so big and small funds compare fairly. Returns are in the table.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
@@ -172,7 +173,7 @@
         <header class="card-head">
           <div>
             <h3 id="closeup-title">Market close-up</h3>
-            <p class="muted small">Price and week-by-week flow for one market over three years. Click any market name or bar on this page to open it here.</p>
+            <p class="muted small">Price and flow for one market over the selected range. Click any market name or bar on this page to open it here.</p>
           </div>
           <div class="card-actions">
             <label class="visually-hidden" for="closeup-select">Choose a market</label>
@@ -229,6 +230,44 @@
       <div class="grid outlook" id="outlook-grid"></div>
     </section>
 
+    <section id="positioning" class="section">
+      <div class="section-head">
+        <div>
+          <h2>Positioning: who is crowded?</h2>
+          <p class="muted" id="positioning-sub">Net futures positions of hedge funds and other speculators, from the CFTC's weekly
+            Commitments of Traders report. Extremes mark crowded trades, which can unwind fast.</p>
+        </div>
+      </div>
+      <div class="grid two">
+        <article class="card" data-card="crowding">
+          <header class="card-head">
+            <div>
+              <h3>Where speculators stand</h3>
+              <p class="muted small" id="crowding-sub">Their net position as a percentile of the three years before the end of the selected range. 100 is the most bullish in that time, 0 the most bearish.</p>
+            </div>
+            <button type="button" class="ghost small table-toggle">Table</button>
+          </header>
+          <div class="chart" id="chart-crowding"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+        <article class="card" data-card="positions">
+          <header class="card-head">
+            <div>
+              <h3 id="positions-title">Net position over time</h3>
+              <p class="muted small" id="positions-sub">Contracts long minus contracts short. Click a bar on the left to switch market.</p>
+            </div>
+            <div class="card-actions">
+              <label class="visually-hidden" for="positions-select">Choose a futures market</label>
+              <select id="positions-select"></select>
+              <button type="button" class="ghost small table-toggle">Table</button>
+            </div>
+          </header>
+          <div class="chart" id="chart-positions"></div>
+          <div class="table-wrap" hidden></div>
+        </article>
+      </div>
+    </section>
+
     <section id="cash" class="section">
       <div class="section-head">
         <div>
@@ -237,6 +276,16 @@
         </div>
       </div>
       <div class="grid multiples" id="cash-grid"></div>
+    </section>
+
+    <section id="rates" class="section">
+      <div class="section-head">
+        <div>
+          <h2>Rates and credit: the price of money</h2>
+          <p class="muted" id="rates-sub">What cash and borrowing cost, and how nervous lenders are. Higher yields pull money toward bonds and cash; wider credit spreads mean lenders want more to take risk. Shaded bands are S&amp;P 500 selloffs.</p>
+        </div>
+      </div>
+      <div class="grid multiples" id="rates-grid"></div>
     </section>
 
     <section id="risk" class="section">
@@ -262,7 +311,7 @@
         <article class="card" data-card="performance">
           <header class="card-head">
             <div>
-              <h3>One year of performance</h3>
+              <h3>Performance</h3>
               <p class="muted small" id="performance-sub">One market per class, indexed to 100 at the start of the selected range.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
@@ -289,25 +338,44 @@
       <div class="grid two prose">
         <div>
           <h3>Money doesn't vanish in a selloff</h3>
-          <p>Every share sold has a buyer, so a falling market does not "drain" a fixed pot of cash. What changes is who
-            holds what and at what price. The useful question is where sellers park their proceeds and which markets
-            see persistent buying while stocks fall. That shows up as relative strength, heavy turnover and rising cash
-            balances, which is what this page tracks.</p>
+          <p>Every share sold has a buyer, so trading alone does not move money between markets. What does is
+            investors putting new money into funds or pulling it out, and where they park it. That is what this page
+            measures, alongside prices, futures positioning and the cash piles that money can come from.</p>
+          <h3>Real fund flows</h3>
+          <p>Every State Street SPDR fund (the S&amp;P 500's SPY, the eleven sector funds, gold's GLD, T-bills,
+            Treasuries, corporate and high-yield bonds, and international stocks) publishes its shares outstanding
+            every day. When investors put money in, new shares are created; when they pull it out, shares are
+            cancelled. New shares times the share price is the day's flow, in real dollars. Crypto's flow is the
+            change in the total supply of dollar stablecoins, the cash that moves on and off crypto rails. SPDR funds
+            are a large, consistent slice of US ETFs (well over a trillion dollars), not the whole market, so read
+            sizes as a sample and directions as the signal. Stablecoins, by contrast, are counted in full, so over
+            long ranges crypto looks large next to the other classes; compare each class with its own past. Markets without an SPDR fund (Nasdaq 100, small caps,
+            bitcoin, the dollar, broad commodities) are tracked for price only.</p>
           <h3>The liquidity wheel</h3>
-          <p>Each market's estimated flow is added up within its class, so rotation inside a class (from tech into
-            utilities, say) cancels out and only money crossing between classes remains. Cash balances the wheel: if
-            more was sold than bought across the tracked markets, the difference is shown flowing into cash, and if
-            more was bought, it is shown coming out of cash.</p>
-          <h3>Estimated flows</h3>
-          <p>Real fund flows (ETF creations and redemptions, money fund subscriptions) mostly sit behind paid data.
-            Flows here are estimated with <em>Chaikin money flow</em>: each day's dollar volume is signed by where the
-            close landed in the day's range. Each market is then compared with its own average over the previous
-            year, so only unusual buying or selling counts; without that, rising markets would look like they attract
-            money every single day. The rotation map then splits each net outflow across net inflows in
-            proportion to size; any imbalance is routed to or from <em>Cash &amp; sidelines</em>. Read it as a picture
-            of pressure, not a ledger of who bought from whom.</p>
+          <p>Each fund's flow is added up within its class, so rotation inside a class (from tech into utilities,
+            say) cancels out and only money crossing between classes remains. The <em>Sidelines</em> balance the
+            wheel: money that came into the tracked funds from outside (bank deposits, other funds) is shown leaving
+            the sidelines, and money that left them altogether is shown going to the sidelines. The rotation map
+            splits each net outflow across net inflows in proportion to size; it is a way to read the rotation, not
+            a ledger of who bought from whom.</p>
+          <h3>Positioning</h3>
+          <p>The CFTC publishes, every Friday for the previous Tuesday, how many futures contracts each type of
+            trader holds. For stock, bond, dollar and bitcoin futures the page shows <em>leveraged funds</em> (hedge
+            funds and CTAs); for gold and crude oil, <em>managed money</em>. When their net position is at the top or
+            bottom of its three-year range, the trade is crowded: there are few buyers (or sellers) left, and a
+            surprise can force a fast unwind. One exception: in Treasury and bitcoin futures, hedge funds' net short
+            is mostly the <em>basis trade</em> (owning the bond or the coin and selling the future against it), not a
+            bet on prices falling, so an extreme there says more about that trade than about direction.</p>
         </div>
         <div>
+          <h3>Rates and credit</h3>
+          <ul>
+            <li><strong>10-year Treasury yield</strong>: what the US government pays to borrow for ten years, the anchor for most asset prices.</li>
+            <li><strong>Yield curve</strong>: the 10-year yield minus the 2-year. Below zero (inverted) has preceded most US recessions.</li>
+            <li><strong>Real yield</strong>: the 10-year yield after expected inflation (TIPS). High real yields compete with gold and stocks.</li>
+            <li><strong>High-yield spread</strong>: the extra yield risky companies pay over Treasuries. It widens when lenders get nervous.</li>
+            <li><strong>Financial conditions</strong>: the Chicago Fed's index of credit, leverage and risk. Above zero is tighter than average.</li>
+          </ul>
           <h3>Cash buckets</h3>
           <ul>
             <li><strong>Stablecoins</strong>: dollars waiting on crypto rails. Rising supply is often new buying power for crypto.</li>
@@ -332,8 +400,8 @@
             selloff heatmap to replay that period in the wheel.</p>
           <h3>Outlook</h3>
           <p>The outlook cards summarise patterns: which markets held up or bounced back in past selloffs,
-            where unusual buying or selling has persisted, and where price and flow disagree. They describe
-            history and current pressure. They are not forecasts or advice.</p>
+            where money has kept flowing in or out, and where price and flow disagree. They describe history
+            and current flows. They are not forecasts or advice.</p>
           <h3>Selloffs</h3>
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
             confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and

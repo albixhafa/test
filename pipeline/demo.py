@@ -14,23 +14,43 @@ PROFILE = {
     "SPY": (1.00, 0.002, 0.000, 30.0, 200),
     "QQQ": (1.20, 0.004, 0.000, 18.0, 110),
     "IWM": (1.15, 0.005, -0.001, 5.0, 115),
-    "EFA": (0.85, 0.004, 0.000, 1.5, 58),
-    "EEM": (0.95, 0.006, -0.001, 1.2, 35),
+    "SPDW": (0.85, 0.004, 0.000, 0.3, 27),
+    "SPEM": (0.95, 0.006, -0.001, 0.2, 33),
+    "XLK": (1.20, 0.005, 0.000, 1.5, 42),
+    "XLF": (1.10, 0.006, -0.001, 1.8, 23),
+    "XLE": (0.90, 0.012, -0.001, 1.5, 60),
+    "XLV": (0.70, 0.005, 0.0005, 1.0, 68),
+    "XLI": (1.00, 0.005, 0.000, 1.0, 53),
+    "XLY": (1.10, 0.006, -0.0005, 0.8, 76),
     "XLP": (0.55, 0.004, 0.0015, 0.8, 50),
     "XLU": (0.45, 0.006, 0.0012, 1.0, 45),
+    "XLB": (0.95, 0.006, 0.000, 0.5, 45),
+    "XLRE": (0.80, 0.007, 0.000, 0.3, 32),
+    "XLC": (1.05, 0.006, 0.000, 0.4, 50),
     "BIL": (0.00, 0.0002, 0.0001, 0.6, 91),
-    "IEF": (-0.15, 0.003, 0.0015, 1.5, 105),
-    "TLT": (-0.30, 0.008, 0.0030, 3.0, 120),
-    "LQD": (0.10, 0.003, 0.0005, 2.5, 110),
-    "HYG": (0.40, 0.002, -0.0010, 3.0, 80),
+    "UUP": (-0.12, 0.003, 0.0020, 0.08, 25),
+    "SPTI": (-0.15, 0.003, 0.0015, 0.15, 30),
+    "SPTL": (-0.30, 0.008, 0.0030, 0.2, 35),
+    "SPBO": (0.10, 0.003, 0.0005, 0.05, 30),
+    "JNK": (0.40, 0.002, -0.0010, 1.0, 100),
     "GLD": (-0.05, 0.009, 0.0035, 1.8, 105),
     "DBC": (0.40, 0.010, -0.0010, 0.15, 14),
-    "UUP": (-0.12, 0.003, 0.0020, 0.08, 25),
     "BTC-USD": (1.60, 0.030, -0.0020, 30.0, 430),
     "ETH-USD": (2.00, 0.040, -0.0030, 15.0, 1),
 }
 # Extra volume in selloffs; havens see the heaviest turnover relative to normal.
-SELLOFF_VOLUME = {"BIL": 2.2, "GLD": 1.9, "TLT": 1.8, "IEF": 1.6, "UUP": 1.7, "XLP": 1.4, "XLU": 1.4}
+SELLOFF_VOLUME = {"BIL": 2.2, "GLD": 1.9, "SPTL": 1.8, "SPTI": 1.6, "UUP": 1.7, "XLP": 1.4, "XLU": 1.4}
+# ticker: (fund size in $bn at the start, daily flow noise as a share of size, selloff flow tilt)
+FUNDS = {
+    "SPY": (190, 0.006, -0.004), "SPDW": (5, 0.002, -0.001), "SPEM": (3, 0.002, -0.001),
+    "XLK": (15, 0.003, -0.001), "XLF": (17, 0.004, -0.002), "XLE": (12, 0.004, -0.001),
+    "XLV": (12, 0.003, 0.000), "XLI": (8, 0.003, -0.001), "XLY": (9, 0.003, -0.001),
+    "XLP": (8, 0.003, 0.002), "XLU": (6, 0.004, 0.002), "XLB": (4, 0.003, -0.001),
+    "XLRE": (2, 0.003, 0.000), "XLC": (1, 0.003, -0.001), "BIL": (3, 0.004, 0.006),
+    "SPTI": (1, 0.003, 0.003), "SPTL": (0.5, 0.004, 0.004), "SPBO": (0.5, 0.003, 0.000),
+    "JNK": (10, 0.004, -0.004), "GLD": (30, 0.002, 0.003),
+}
+FUND_START = {"XLC": "2018-06-19"}
 
 
 def _market_factor(n, rng):
@@ -125,8 +145,49 @@ def generate(start="2016-01-01", end=None, seed=7):
         "CPIAUCSL": _smooth_path(monthly, [(start, 237.0), ("2020-12-01", 262.0), ("2022-06-01", 296.0),
                                            (end, 330.0)], rng, 0.0005),
     }
+    for sid, knots in {
+        "DGS10": [(start, 2.2), ("2020-08-01", 0.6), ("2022-10-20", 4.2), ("2023-10-19", 5.0), (end, 4.3)],
+        "T10Y2Y": [(start, 1.2), ("2019-08-28", -0.05), ("2021-03-01", 1.5), ("2023-07-03", -1.05), (end, 0.5)],
+        "DFII10": [(start, 0.7), ("2020-08-01", -1.1), ("2022-10-20", 1.7), ("2023-10-19", 2.5), (end, 1.9)],
+        "BAMLH0A0HYM2": [("2023-10-31", 4.4), ("2024-12-01", 2.8), ("2025-04-08", 4.5), (end, 3.0)],
+        "NFCI": [(start, -0.3), ("2020-03-20", 0.4), ("2021-06-01", -0.6), ("2022-10-01", 0.0), (end, -0.5)],
+    }.items():
+        first = pd.Timestamp(knots[0][0])
+        index = pd.date_range(first, end, freq="W-FRI") if sid == "NFCI" else pd.bdate_range(first, end)
+        macro[sid] = _smooth_path(index, knots, rng, 0.01)
+
     stable_days = pd.date_range(start, end, freq="D")
     stable = _smooth_path(stable_days, [(start, 0.01), ("2017-12-01", 1.5), ("2019-12-01", 5.5),
                                         ("2021-01-01", 28), ("2022-04-01", 187), ("2023-10-01", 122),
                                         ("2025-01-01", 205), (end, 310)], rng, 0.002)
-    return prices, vix, macro, stable
+
+    # Fund share counts: noisy daily creations and redemptions, out of stocks and junk
+    # bonds and into havens during selloffs, and chasing recent returns otherwise.
+    funds = {}
+    for ticker, (size_bn, noise, tilt) in FUNDS.items():
+        nav = prices[ticker]["close"]
+        trailing = nav.pct_change(20).fillna(0.0).to_numpy()
+        pct = noise * rng.standard_normal(n) + np.where(crash, tilt, 0.0) + 0.08 * trailing / 20 + 0.0002
+        shares = size_bn * 1e9 / nav.iloc[0] * np.exp(np.cumsum(pct))
+        df = pd.DataFrame({"nav": nav.to_numpy(), "shares": np.round(shares, -4)}, index=days)
+        df["aum"] = df["nav"] * df["shares"]
+        funds[ticker] = df[df.index >= FUND_START.get(ticker, start)]
+
+    # Futures positioning: speculators lean with the trend and get squeezed in selloffs.
+    trend = pd.Series(mkt, index=days).rolling(60, min_periods=5).sum()
+    cftc = {}
+    for key, (scale, oi, report) in {
+        "sp500": (300e3, 2.0e6, "tff"), "nasdaq": (40e3, 2.5e5, "tff"), "ust10": (-500e3, 4.5e6, "tff"),
+        "ustbond": (-150e3, 1.8e6, "tff"), "dollar": (15e3, 3.0e4, "tff"), "bitcoin": (-1.5e3, 2.5e4, "tff"),
+        "gold": (150e3, 5.0e5, "disagg"), "crude": (200e3, 1.8e6, "disagg"),
+    }.items():
+        weekly_trend = trend.resample("W-TUE").last().dropna()
+        noise = np.cumsum(rng.standard_normal(len(weekly_trend))) * 0.05
+        spec = scale * (np.tanh(weekly_trend.to_numpy() * 8) * 0.6 + noise)
+        frame = pd.DataFrame({"spec_net": np.round(spec), "open_interest": oi * (1 + 0.1 * rng.standard_normal(len(spec)))},
+                             index=weekly_trend.index)
+        if report == "tff":
+            frame["am_net"] = np.round(-0.8 * spec + scale * 2)
+        cftc[key] = frame
+
+    return {"prices": prices, "vix": vix, "macro": macro, "stable": stable, "funds": funds, "cftc": cftc}
