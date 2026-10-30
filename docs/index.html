@@ -78,17 +78,7 @@
         </div>
 
         <div class="panel" data-panel="classes" data-card="classes" data-title="Flows by class" role="tabpanel">
-          <header class="card-head">
-            <p class="classes-total" id="classes-total"></p>
-            <div class="card-actions">
-              <label class="visually-hidden" for="replay-select">Show a past period</label>
-              <select id="replay-select" class="ghost small"></select>
-            </div>
-          </header>
-          <div class="replay-bar" id="replay-bar" hidden>
-            <span id="replay-text"></span>
-            <button type="button" class="ghost small" id="replay-exit">Back to the range</button>
-          </div>
+          <p class="classes-total" id="classes-total"></p>
           <div class="chart classes-view" id="chart-classes">
             <ul class="class-bars" id="class-bars"></ul>
           </div>
@@ -113,11 +103,6 @@
             <h3 data-info="history">Running total by class</h3>
           </div>
           <div class="card-actions">
-            <div class="segmented compact" role="radiogroup" aria-label="History period" id="history-kind">
-              <button type="button" role="radio" data-kind="daily" title="Daily">D</button>
-              <button type="button" role="radio" data-kind="weekly" title="Weekly">W</button>
-              <button type="button" role="radio" data-kind="monthly" title="Monthly">M</button>
-            </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </div>
         </header>
@@ -135,10 +120,6 @@
       <article class="card" data-card="pools" data-title="Where the money sits">
         <header class="card-head">
           <div class="card-actions">
-            <div class="segmented compact" role="radiogroup" aria-label="Group by" id="pools-grain">
-              <button type="button" role="radio" data-grain="month">Month</button>
-              <button type="button" role="radio" data-grain="year">Year</button>
-            </div>
             <div class="segmented compact" role="radiogroup" aria-label="Scale" id="pools-scale">
               <button type="button" role="radio" data-scale="linear">Linear</button>
               <button type="button" role="radio" data-scale="log">Log</button>
@@ -302,10 +283,10 @@
             dollar amount in today's dollars and every price change as a real return, using the US consumer price
             index (CPI). CPI is monthly and published with a lag of about a month, so short recent ranges barely
             change. Correlations, rates and the risk score are unaffected.</p>
-          <h3>History and replay</h3>
-          <p>The history chart adds up the same class flows over the range, as a running total day by day, week by
-            week for three years, or month by month since 2017. Tap any point, pick a past selloff from the menu above the class bars, or tap a row in
-            the selloff heatmap to show that period in the Classes view.</p>
+          <h3>Running total</h3>
+          <p>The running total adds up the same class flows over the range: day by day for ranges up to about six
+            weeks, week by week up to three years, and month by month since 2017 beyond that. To see the flows of a
+            past week or selloff, pick its dates with <em>Custom</em> in the range bar.</p>
           <h3>Selloffs</h3>
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
             confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and

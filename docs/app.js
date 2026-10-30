@@ -152,34 +152,7 @@ function chart(id) {
   return state.charts[id];
 }
 
-function csvCell(v) {
-  const s = String(v ?? "").replace(/\u2212/g, "-").replace(/\u2060/g, "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-// A "Download CSV" button for a table's headers and text rows.
-function csvButton(title, headers, rows) {
-  const dl = document.createElement("button");
-  dl.type = "button";
-  dl.className = "ghost small csv";
-  dl.textContent = "Download CSV";
-  dl.addEventListener("click", () => {
-    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${state.data.meta.as_of}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
-  });
-  return dl;
-}
-
 function table(container, headers, rows) {
-  // Every table can be downloaded as CSV, named after its card.
-  const card = container.closest("[data-card]");
-  const title = (card && (card.dataset.title || (card.querySelector("h3") && card.querySelector("h3").textContent)) || "table").trim();
-  const dl = csvButton(title, headers, rows);
   const tbl = document.createElement("table");
   const thead = tbl.createTHead().insertRow();
   headers.forEach((h) => {
@@ -194,7 +167,7 @@ function table(container, headers, rows) {
       tr.insertCell().textContent = cell;
     });
   });
-  container.replaceChildren(...(rows.length ? [dl] : []), tbl);
+  container.replaceChildren(tbl);
 }
 
 function cardTable(card) {
@@ -443,7 +416,7 @@ const INFO = {
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
   flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only. Classes: bars to the right are money coming in, to the left money going out; tap a class to open its funds and a fund for its price and flows. Map: each tile is a fund, sized by its assets and coloured by its flow as a share of the fund. Vs returns: each dot is a fund, across is its return and up is its flow as a share of the fund.",
   pools: "Stocks: US companies' shares, listed and private (Federal Reserve Financial Accounts, quarterly), carried month to month by the S&P 500. Real estate: homes and land owned by households (Financial Accounts, quarterly), carried by the Case-Shiller home price index; property owned by companies is already inside their shares. Bonds: marketable US Treasuries at market value (Dallas Fed) plus company bonds. Cash: the M2 money supply plus companies' money market funds. Gold: all gold ever mined (World Gold Council estimate) times the gold price. Crypto: bitcoin and ether in circulation times their prices, plus stablecoins. US figures for stocks, real estate, bonds and cash; global for gold and crypto. Values move with prices: when markets fall, the value falls without any money leaving.",
-  history: "Each line adds up a class's net flows from the start of the selected range: rising means money keeps coming in, falling means it keeps leaving. Net new money is what came into the tracked funds from outside. Shaded bands are S&P 500 selloffs. Tap a point to see that period by class.",
+  history: "Each line adds up a class's net flows from the start of the selected range: rising means money keeps coming in, falling means it keeps leaving. Net new money is what came into the tracked funds from outside. Shaded bands are S&P 500 selloffs.",
   backdrop: "Cash: where money that leaves risk assets parks. Rates: what cash and borrowing cost, and how nervous lenders are. Positioning: speculators' net futures position as a percentile of the last three years (CFTC, weekly); near 0 or 100 is crowded and can unwind fast. Risk: whether the market is reaching for risk or running from it, and which assets still move with stocks. Tap a row for its chart.",
   intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
@@ -518,9 +491,7 @@ function hideTip() {
   $("#tip").hidden = true;
 }
 
-// ---------- views: the selected range, a past week or month, or a past selloff ----------
-
-state.replay = null;
+// ---------- views: the selected range, or one period of flow history ----------
 
 function rangeView() {
   const agg = aggregate();
@@ -570,23 +541,6 @@ function periodsInRange(kind) {
   return h.end.map((e, i) => (overlapsRange(h.start[i], e, b) ? i : -1)).filter((i) => i >= 0);
 }
 
-function historyView(kind, i) {
-  const p = periodAt(kind, i);
-  const names = {
-    daily: () => fmtDate(p.end),
-    weekly: () => `the week of ${fmtDate(p.start)}`,
-    monthly: () => parseDay(p.end).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }),
-  };
-  const name = names[kind]();
-  return {
-    ...p,
-    span: `on ${name}`.replace("on the week", "in the week").replace(/^on ([A-Z][a-z]+ \d{4})$/, "in $1"),
-    hub: { daily: "moved that day", weekly: "moved that week", monthly: "moved that month" }[kind],
-    label: kind === "weekly" ? `Week of ${fmtDate(p.start)}` : name,
-    key: `${kind}:${p.end}`,
-  };
-}
-
 // A selloff with returns made real (after inflation) and flows in today's dollars.
 function realEpisode(e) {
   if (!state.real) return e;
@@ -600,87 +554,6 @@ function realEpisode(e) {
     net_flow_bn: a.net_flow_bn == null ? null : a.net_flow_bn * k,
   }]));
   return { ...e, drawdown: (1 + e.drawdown) * over - 1, assets, wheel: scaleWheel(e.wheel, k), _src: e };
-}
-
-function episodeView(i) {
-  const e = realEpisode(state.data.selloffs.episodes[i]);
-  return {
-    start: e.peak, end: e.trough, wheel: e.wheel,
-    span: `during the ${fmtMonth(e.peak)} selloff`,
-    hub: "moved during the selloff",
-    label: `${fmtMonth(e.peak)} selloff: S&P 500 ${fmtPct(e.drawdown, 0)}${e.ongoing ? " (still going)" : ""}`,
-    key: `ep:${i}`,
-    marketNets: Object.fromEntries(Object.entries(e.assets).map(([t, a]) => [t, a.net_flow_bn])),
-  };
-}
-
-function currentView() {
-  return state.replay || rangeView();
-}
-
-function replay(view, scroll = true) {
-  state.replay = view;
-  syncReplayControls();
-  if (state.tabs.flows !== "classes") showTab("flows", "classes", { render: false, hash: false });
-  writeHash();
-  safely("classes", renderClasses, theme());
-  if (scroll) $("#flows").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function exitReplay() {
-  state.replay = null;
-  syncReplayControls();
-  writeHash();
-  safely("classes", renderClasses, theme());
-}
-
-function syncReplayControls() {
-  const bar = $("#replay-bar");
-  const select = $("#replay-select");
-  bar.hidden = !state.replay;
-  if (state.replay) $("#replay-text").textContent = `Replaying ${state.replay.label}`;
-  let custom = select.querySelector('option[data-custom]');
-  if (state.replay && !select.querySelector(`option[value="${state.replay.key}"]`)) {
-    if (!custom) {
-      custom = document.createElement("option");
-      custom.dataset.custom = "1";
-      // Right after "Now", as a direct child (options[1] would be inside the optgroup).
-      select.insertBefore(custom, select.children[1] || null);
-    }
-    custom.value = state.replay.key;
-    custom.textContent = state.replay.label;
-  } else if (custom && (!state.replay || custom.value !== state.replay.key)) {
-    custom.remove();
-  }
-  select.value = state.replay ? state.replay.key : "";
-}
-
-function buildReplaySelect() {
-  const select = $("#replay-select");
-  select.replaceChildren();
-  const now = document.createElement("option");
-  now.value = "";
-  now.textContent = "Selected range";
-  select.appendChild(now);
-  const group = document.createElement("optgroup");
-  group.label = "Past S&P 500 selloffs";
-  state.data.selloffs.episodes.map((e, i) => [e, i]).filter(([e]) => e.wheel).reverse().forEach(([, i]) => {
-    const o = document.createElement("option");
-    const v = episodeView(i);
-    o.value = v.key;
-    o.textContent = v.label;
-    group.appendChild(o);
-  });
-  select.appendChild(group);
-}
-
-function viewFromKey(key) {
-  if (!key) return null;
-  const [kind, id] = key.split(":");
-  if (kind === "ep") return state.data.selloffs.episodes[+id] ? episodeView(+id) : null;
-  const dates = kind === "daily" ? state.data.series.daily.dates : (state.data.history[kind] || {}).end;
-  const i = dates ? dates.indexOf(id) : -1;
-  return i >= 0 ? historyView(kind, i) : null;
 }
 
 // ---------- classes: money in and out of each class, opening into its funds ----------
@@ -705,10 +578,10 @@ function divergingBar(value, max, color) {
 }
 
 function renderClasses(t) {
-  const view = currentView();
+  const view = rangeView();
   const net = view.wheel.net;
   const nets = view.marketNets || {};
-  const agg = state.replay ? null : aggregate().assets;
+  const agg = aggregate().assets;
   const fresh = -(net[SIDELINES] || 0);
   $("#classes-total").textContent = fresh >= 0
     ? `New money in: ${fmtUsdBn(fresh, true)}`
@@ -803,12 +676,12 @@ function growBars(root) {
 
 // ---------- where the money sits: holdings by class, stacked month by month ----------
 
-state.pools = { grain: "month", scale: "linear" };
+state.pools = { scale: "linear" };
 const POOL_NAMES = { "Gold & commodities": "Gold" };
 const poolName = (g) => POOL_NAMES[g] || g;
 // Real estate is not a flow class, so it takes the one palette slot the classes leave free.
 const poolColor = (t, g) => (g === "Real estate" ? t.groups[6] : groupColor(t, g));
-// Diagonal stripes for the month or year still in progress.
+// Diagonal stripes for the month still in progress.
 const STRIPES = { symbol: "rect", symbolSize: 1, dashArrayX: [1, 0], dashArrayY: [3, 3], rotation: Math.PI / 4, color: "rgba(0, 0, 0, 0.32)" };
 
 // Trillions read best rounded: $148T, $9.4T, $620B.
@@ -819,19 +692,15 @@ function fmtPool(v) {
   return a >= 9950 ? `$${(a / 1000).toFixed(0)}T` : a >= 999.5 ? `$${(a / 1000).toFixed(1)}T` : fmtUsdBn(a);
 }
 
-// The months (or year ends) to draw: the selected range, widened to at least a year
-// of months (or three years) because the data is monthly.
+// The months in the selected range; a range shorter than a month shows the month it ends in.
 function poolPeriods() {
   const P = state.data.pools;
-  const year = state.pools.grain === "year";
-  let idx = P.dates.map((_, i) => i);
-  if (year) idx = idx.filter((i) => i === P.dates.length - 1 || P.dates[i + 1].slice(0, 4) !== P.dates[i].slice(0, 4));
+  const idx = P.dates.map((_, i) => i);
   const b = rangeBounds();
-  let shown = idx.filter((i) => P.dates[i] <= b.end && (year ? P.dates[i].slice(0, 4) >= b.start.slice(0, 4) : inRange(P.dates[i], b)));
-  const min = year ? 3 : 12;
-  const widened = shown.length < min;
-  if (widened) shown = idx.filter((i) => P.dates[i] <= b.end).slice(-min);
-  return { P, shown, widened, year };
+  let shown = idx.filter((i) => inRange(P.dates[i], b));
+  if (!shown.length) shown = idx.filter((i) => P.dates[i] >= b.end).slice(0, 1);
+  if (!shown.length) shown = idx.slice(-1);
+  return { P, shown };
 }
 
 function renderPools(t) {
@@ -840,19 +709,15 @@ function renderPools(t) {
     $("#pools").hidden = true;
     return;
   }
-  const { P, shown, year } = poolPeriods();
+  const { P, shown } = poolPeriods();
   const { scale } = state.pools;
-  document.querySelectorAll("#pools-grain button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.grain === state.pools.grain)));
   document.querySelectorAll("#pools-scale button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.scale === scale)));
   const groups = Object.keys(P.values);
-  const lastIdx = P.dates.length - 1;
-  // Still in progress: the latest month if more trading days are to come, and the latest
-  // year until its December is complete.
-  const yearOpen = P.partial || P.dates[lastIdx].slice(5, 7) !== "12";
-  const partial = (i) => (year ? i === lastIdx && yearOpen : i === lastIdx && P.partial);
+  // Still in progress: the latest month if more trading days are to come.
+  const partial = (i) => i === P.dates.length - 1 && P.partial;
   const val = (g, i) => (P.values[g][i] == null ? null : P.values[g][i] * deflator(P.dates[i]));
   const totals = shown.map((i) => groups.reduce((acc, g) => acc + (val(g, i) || 0), 0));
-  const label = (i) => (year ? P.dates[i].slice(0, 4) : fmtMonth(P.dates[i]));
+  const label = (i) => fmtMonth(P.dates[i]);
 
   const c = chart("chart-pools");
   const many = shown.length > 24;
@@ -879,8 +744,8 @@ function renderPools(t) {
       axisTick: { show: false },
       axisLabel: {
         color: t.muted, fontSize: 11, hideOverlap: true,
-        interval: year || !many ? 0 : (k, v) => v.slice(5, 7) === "01",
-        formatter: (v) => (year || many ? v.slice(0, 4) : fmtMonth(v).replace(/ (\d{2})(\d{2})$/, " ’$2")),
+        interval: many ? (k, v) => v.slice(5, 7) === "01" : 0,
+        formatter: (v) => (many ? v.slice(0, 4) : fmtMonth(v).replace(/ (\d{2})(\d{2})$/, " ’$2")),
       },
     },
     yAxis: scale === "share"
@@ -895,6 +760,7 @@ function renderPools(t) {
       type: "bar",
       stack: "all",
       barCategoryGap: shown.length > 40 ? "10%" : "22%",
+      barMaxWidth: 72,
       itemStyle: { color: poolColor(t, g) },
       data: shown.map((i, j) => {
         const v = val(g, i);
@@ -910,7 +776,7 @@ function renderPools(t) {
     sp.append(key, document.createTextNode(poolName(g)));
     return sp;
   }));
-  table(cardTable("pools"), [year ? "Year" : "Month", ...groups.map(poolName), "Total"],
+  table(cardTable("pools"), ["Month", ...groups.map(poolName), "Total"],
     shown.map((i, j) => [label(i), ...groups.map((g) => fmtPool(val(g, i))), fmtPool(totals[j])]).reverse());
 }
 
@@ -1178,8 +1044,6 @@ function barCategoryName(ticker) {
 
 // ---------- liquidity history ----------
 
-state.history = { kind: "weekly" };
-
 // Which grains the selected range supports, and a sensible default for it.
 function grainAvailable(kind) {
   const b = rangeBounds();
@@ -1222,20 +1086,11 @@ function historyData(kind) {
   return out;
 }
 
-function capitalise(text) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function renderHistory(t) {
-  if (!grainAvailable(state.history.kind)) state.history.kind = autoGrain();
-  const { kind } = state.history;
+  const kind = autoGrain();
   const h = historyData(kind);
   const groups = state.data.groups;
   const color = (g) => groupColor(t, g);
-  document.querySelectorAll("#history-kind button").forEach((b) => {
-    b.setAttribute("aria-checked", String(b.dataset.kind === kind));
-    b.disabled = !grainAvailable(b.dataset.kind);
-  });
 
   const c = chart("chart-history");
   if (!h.end.length) {
@@ -1262,7 +1117,6 @@ function renderHistory(t) {
     endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 },
     labelLayout: { moveOverlap: "shiftY" },
   }));
-  const periodText = (i) => (h.start[i] === h.end[i] ? fmtDate(h.end[i], true) : fmtRange(h.start[i], h.end[i]));
 
   c.setOption({
     grid: { left: 8, right: narrowScreen() ? 16 : 130, top: narrowScreen() ? 64 : 40, bottom: 24, containLabel: true },
@@ -1278,25 +1132,13 @@ function renderHistory(t) {
         const i = ps[0].dataIndex;
         const head = `<div style="margin-bottom:4px">${esc(fmtRange(h.start[0], h.end[i]))}</div>`;
         const rows = ps.slice().sort((a, b) => b.data[1] - a.data[1]).map((p) => row(p.seriesName, fmtUsdBn(p.data[1], true), p.color)).join("");
-        return head + rows + `<div style="margin-top:6px;opacity:.7">Tap to see ${esc(periodText(i))} by class</div>`;
+        return head + rows;
       },
     },
     xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
     yAxis: { type: "value", ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
     series,
   }, true);
-  // Clicking anywhere in the plot (on a line, a selloff band or empty space) replays the nearest period.
-  c.getZr().off("click");
-  c.getZr().on("click", (ev) => {
-    const pt = [ev.offsetX, ev.offsetY];
-    if (!c.containPixel("grid", pt)) return;
-    const x = c.convertFromPixel({ seriesIndex: 0 }, pt)[0];
-    const ends = h.end.map((d) => parseDay(d).getTime());
-    let best = 0;
-    ends.forEach((e, i) => { if (Math.abs(e - x) < Math.abs(ends[best] - x)) best = i; });
-    replay(historyView(kind, h.idx[best]));
-  });
-
   const classes = groups.filter((g) => g !== SIDELINES);
   table(cardTable("history"), ["Through", ...classes, NEW_MONEY],
     h.end.map((d, i) => [fmtDate(d, true), ...[...classes, SIDELINES].map((g) => fmtUsdBn(totals[g][i], true))]).reverse());
@@ -1556,7 +1398,7 @@ function renderSelloffStats() {
     : "";
   INFO.selloffs = `A selloff is a fall of at least ${pct} in the S&P 500 from a swing high. ${history}${now} ` +
     "Playbook: each market's median return from the S&P 500's peak to its trough; what rose while stocks fell is where sellers' money went. " +
-    "Every selloff: each market in each selloff, newest at top. Tap a row to see that selloff's flows.";
+    "Every selloff: each market in each selloff, newest at top.";
 }
 
 function renderHeatmap(t) {
@@ -1637,12 +1479,6 @@ function renderHeatmap(t) {
       emphasis: { itemStyle: { borderColor: t.text, borderWidth: 1 } },
     }],
   }, true);
-  c.off("click");
-  c.on("click", (p) => {
-    const e = eps[p.data[1]];
-    const i = state.data.selloffs.episodes.indexOf(e._src || e);
-    if (state.data.selloffs.episodes[i].wheel) replay(episodeView(i));
-  });
   const cashKeys = [["stablecoins", "Stablecoins"], ["mmf_total", "All MMF"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
   table(cardTable("heatmap"),
     ["Selloff", "S&P 500", ...tickers.filter((tk) => tk !== "SPY").map(shortName), ...cashKeys.map((c) => `Δ ${c[1]}`)],
@@ -1778,14 +1614,6 @@ function ordinal(n) {
   return `${r}${s[(v - 20) % 10] || s[v] || s[0]}`;
 }
 
-// Where an extreme sits: "longest" only makes sense for a net long position. Hedge funds
-// are structurally short Treasury and bitcoin futures (the basis trade), so a top reading
-// there means "least short".
-function extremeWord(pct, net) {
-  if (pct >= 85) return net >= 0 ? "near their longest" : "near their least short";
-  return net <= 0 ? "near their shortest" : "near their least long";
-}
-
 // Plain reading of a percentile: crowded long, crowded short, or neither.
 function crowdLabel(pct, net) {
   if (pct >= 85) return net >= 0 ? "Crowded long" : "Least short in 3 years";
@@ -1907,9 +1735,7 @@ function backdropTable(panel, title, columns, rows, onSelect) {
     tr.addEventListener("click", pick);
     tr.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
   });
-  const csv = csvButton(title, columns.map((c) => c.head).filter(Boolean),
-    rows.map((r) => columns.filter((c) => c.head).map((c) => (c.csv ? c.csv(r) : c.cell(r)))));
-  box.replaceChildren(tbl, csv);
+  box.replaceChildren(tbl);
 }
 
 // One line chart (or bars) for the selected row, with selloffs shaded.
@@ -1978,7 +1804,7 @@ function renderBackdropCash(t) {
     detailChart(t, "chart-bd-cash", { name: r.name, pts: r.pts, fmt: (v) => fmtUsdBn(v, r.bars), axisFmt: fmtAxisUsd, type: r.bars ? "bar" : "line", lines: r.bars ? [{ yAxis: 0 }] : [] });
   };
   backdropTable("cash", "Cash on the sidelines", [
-    { head: "Where cash sits", cell: (r) => nameCell(r.name, r.note, r.info), csv: (r) => r.name },
+    { head: "Where cash sits", cell: (r) => nameCell(r.name, r.note, r.info) },
     { head: "Latest", cls: "num", cell: (r) => fmtUsdBn(r.value, r.bars) },
     { head: changeHead(), cls: "num", cell: changeText },
     { head: "", cls: "spark-cell hide-narrow", cell: (r) => sparkline(r.pts, t.groups[0]) },
@@ -2003,7 +1829,7 @@ function renderBackdropRates(t) {
     });
   };
   backdropTable("rates", "Rates and credit", [
-    { head: "Rate", cell: (r) => nameCell(r.name, r.note), csv: (r) => r.name },
+    { head: "Rate", cell: (r) => nameCell(r.name, r.note) },
     { head: "Latest", cls: "num", cell: (r) => fmtRate(r.value, r.unit) },
     { head: changeHead(), cls: "num", cell: (r) => (r.change != null ? fmtRateChange(r.change, r.unit) : "–") },
     { head: "", cls: "spark-cell hide-narrow", cell: (r) => sparkline(r.pts, t.groups[1]) },
@@ -2038,10 +1864,10 @@ function renderBackdropPositioning(t) {
   if (!rows.length) return;
   if (!rows.some((r) => r.key === state.backdrop.positioning)) state.backdrop.positioning = rows[0].key;
   backdropTable("positioning", "Futures positioning", [
-    { head: "Futures", cell: (r) => nameCell(r.p.name.replace(" futures", ""), r.p.who), csv: (r) => r.p.name },
+    { head: "Futures", cell: (r) => nameCell(r.p.name.replace(" futures", ""), r.p.who) },
     { head: "Net contracts", cls: "num hide-narrow", cell: (r) => fmtContracts(r.c.net) },
     { head: "Week", cls: "num hide-narrow", cell: (r) => fmtContracts(r.c.change) },
-    { head: "Percentile, 3 years", cls: "pct-cell", cell: (r) => percentileBar(r.c.pct, t), csv: (r) => ordinal(r.c.pct) },
+    { head: "Percentile, 3 years", cls: "pct-cell", cell: (r) => percentileBar(r.c.pct, t) },
     { head: "Reading", cls: "hide-narrow", cell: (r) => crowdLabel(r.c.pct, r.c.net) },
   ], rows, () => renderPositionHistory(theme()));
   renderPositionHistory(t);
@@ -2065,7 +1891,7 @@ function renderBackdropRisk(t) {
     }
   };
   backdropTable("risk", "Risk and relationships", [
-    { head: "Measure", cell: (r) => nameCell(r.name, r.note, r.info), csv: (r) => r.name },
+    { head: "Measure", cell: (r) => nameCell(r.name, r.note, r.info) },
     { head: "Latest", cls: "num", cell: (r) => (r.key === "regime" ? `${fmtNum(r.value, 2, true)} ${r.value >= 0.5 ? "on" : r.value <= -0.5 ? "off" : ""}`.trim() : fmtNum(r.value, 2, true)) },
     { head: changeHead(), cls: "num", cell: (r) => fmtNum(r.change, 2, true) },
     { head: "", cls: "spark-cell hide-narrow", cell: (r) => sparkline(r.pts, r.corr ? assetColor(r.key, t) : t.groups[0]) },
@@ -2230,8 +2056,6 @@ function buildRangeControls() {
 function setReal(on) {
   state.real = on && !!cpiLatest();
   state.aggCache = null;
-  // A replay was computed in the old units; rebuild it from its key.
-  if (state.replay) state.replay = viewFromKey(state.replay.key);
   storage("set", "lfm-real", state.real ? "1" : "0");
   writeHash();
   renderAll();
@@ -2253,9 +2077,6 @@ function syncRangeControls() {
 function setRange(range, { persist = true } = {}) {
   state.range = { preset: range.preset, start: range.start || null, end: range.end || null };
   state.aggCache = null;
-  state.replay = null;
-  state.history.kind = autoGrain();
-  syncReplayControls();
   if (persist) storage("set", "lfm-range", JSON.stringify(state.range));
   writeHash();
   renderAll();
@@ -2270,7 +2091,7 @@ function applyCustomRange() {
 }
 
 // Shareable links: the view lives in the URL hash
-// (#range=3M&r=ep:12&m=GLD&hk=monthly, or from=…&to=… for a custom range).
+// (#range=3M&m=GLD&b=rates, or from=…&to=… for a custom range).
 function writeHash() {
   if (!state.data) return;
   const params = new URLSearchParams();
@@ -2281,14 +2102,11 @@ function writeHash() {
   } else {
     params.set("range", state.range.preset);
   }
-  if (state.replay) params.set("r", state.replay.key);
   if (state.closeupOpen) params.set("m", state.market);
   if (state.tabs.flows !== TAB_DEFAULTS.flows) params.set("f", state.tabs.flows);
   if (state.tabs.selloffs !== TAB_DEFAULTS.selloffs) params.set("s", state.tabs.selloffs);
   if (state.tabs.backdrop !== TAB_DEFAULTS.backdrop) params.set("b", state.tabs.backdrop);
-  if (state.pools.grain !== "month") params.set("pg", state.pools.grain);
   if (state.pools.scale !== "linear") params.set("ps", state.pools.scale);
-  if (state.history.kind !== autoGrain()) params.set("hk", state.history.kind);
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -2304,24 +2122,15 @@ function readHash() {
   if (iso.test(params.get("from") || "") && iso.test(params.get("to") || "")) {
     state.range = { preset: "custom", start: params.get("from"), end: params.get("to") };
   }
-  state.history.kind = autoGrain();
-  if (["daily", "weekly", "monthly"].includes(params.get("hk")) && grainAvailable(params.get("hk"))) state.history.kind = params.get("hk");
   if (params.get("m") && state.assets[params.get("m")]) {
     state.market = params.get("m");
     state.openCloseupOnLoad = true;
   }
-  if (["month", "year"].includes(params.get("pg"))) state.pools.grain = params.get("pg");
   if (["linear", "log", "share"].includes(params.get("ps"))) state.pools.scale = params.get("ps");
   [["f", "flows"], ["s", "selloffs"], ["b", "backdrop"]].forEach(([key, group]) => {
     const tab = params.get(key);
     if (tab && TAB_RENDERERS[tab] && document.querySelector(`[data-tabs="${group}"] [data-tab="${tab}"]`)) state.tabs[group] = tab;
   });
-  try {
-    const v = viewFromKey(params.get("r"));
-    if (v && v.wheel) state.replay = v;
-  } catch (e) {
-    state.replay = null;
-  }
 }
 
 function toast(message) {
@@ -2410,11 +2219,6 @@ function wireControls() {
     state.closeupOpen = false;
     writeHash();
   });
-  document.querySelectorAll("#pools-grain button").forEach((btn) => btn.addEventListener("click", () => {
-    state.pools.grain = btn.dataset.grain;
-    writeHash();
-    safely("where the money sits", renderPools, theme());
-  }));
   document.querySelectorAll("#pools-scale button").forEach((btn) => btn.addEventListener("click", () => {
     state.pools.scale = btn.dataset.scale;
     writeHash();
@@ -2447,19 +2251,8 @@ function wireControls() {
     renderAll();
   });
 
-  $("#replay-select").addEventListener("change", (ev) => {
-    const view = viewFromKey(ev.target.value);
-    if (view) replay(view, false);
-    else exitReplay();
-  });
-  $("#replay-exit").addEventListener("click", exitReplay);
   $("#closeup-select").addEventListener("change", (ev) => openCloseup(ev.target.value));
   $("#share").addEventListener("click", share);
-  document.querySelectorAll("#history-kind button").forEach((b) => b.addEventListener("click", () => {
-    state.history.kind = b.dataset.kind;
-    writeHash();
-    safely("liquidity history", renderHistory, theme());
-  }));
 
   if ("IntersectionObserver" in window) {
     const links = new Map([...document.querySelectorAll(".section-nav a")].map((a) => [a.getAttribute("href").slice(1), a]));
@@ -2534,7 +2327,6 @@ async function main() {
   data.assets.forEach((a) => { state.assets[a.ticker] = a; });
   data.groups.forEach((g, i) => { state.groupIndex[g] = i; });
 
-  buildReplaySelect();
   buildCloseupSelect();
   buildRangeControls();
   try {
@@ -2543,10 +2335,8 @@ async function main() {
   } catch (e) {
     // ignore a malformed saved range
   }
-  state.history.kind = autoGrain();
   state.real = storage("get", "lfm-real") === "1" && !!cpiLatest();
   readHash();
-  syncReplayControls();
 
   $("#demo-banner").hidden = !data.meta.demo;
   $("#asof").textContent = `Data through ${fmtDate(data.meta.as_of)}`;
@@ -2561,8 +2351,6 @@ async function main() {
     `. Generated ${data.meta.generated_at}.`;
   renderFreshness(data);
 
-  // A replayed period lives in the wheel, so a shared replay link opens that tab.
-  if (state.replay) state.tabs.flows = "classes";
   Object.entries(state.tabs).forEach(([group, tab]) => showTab(group, tab, { render: false, hash: false }));
   renderAll();
   if (state.openCloseupOnLoad) openCloseup(state.market);
