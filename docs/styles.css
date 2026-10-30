@@ -81,6 +81,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Elements styled with display: flex/grid must still honour the hidden attribute. */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -116,6 +118,37 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ghost:hover { background: var(--wash); }
 .ghost[aria-pressed="true"] { color: var(--text-primary); background: var(--wash); }
 button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+.section-nav {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--page); border-bottom: 1px solid var(--border);
+}
+.section-nav-inner { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-top: 6px; padding-bottom: 6px; }
+.section-nav-inner::-webkit-scrollbar { display: none; }
+.section-nav a {
+  flex-shrink: 0; padding: 4px 10px; border-radius: 8px; font-size: 13px;
+  color: var(--text-secondary); text-decoration: none;
+}
+.section-nav a:hover, .section-nav a:focus-visible { background: var(--wash); color: var(--text-primary); }
+.section-nav a[aria-current="true"] { background: var(--wash); color: var(--text-primary); font-weight: 600; }
+section[id], article[id] { scroll-margin-top: 52px; }
+
+.now {
+  margin-top: 20px; padding: 16px 18px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.now h2 { margin-bottom: 8px; }
+.now-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.now-list li { color: var(--text-secondary); }
+.now-list li strong { color: var(--text-primary); font-weight: 600; }
+
+.info {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 4px; padding: 0; vertical-align: -3px;
+  border: 1px solid var(--border); border-radius: 50%; background: transparent;
+  color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1; cursor: help;
+}
+.info:hover, .info:focus-visible { color: var(--text-primary); border-color: var(--text-secondary); }
 
 .banner {
   margin-top: 16px;
@@ -171,7 +204,32 @@ button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; 
   padding: 16px;
   min-width: 0;
 }
-.card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.card-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-width: 220px; }
+.small { font-size: 13px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.replay-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 4px 0 8px; padding: 8px 12px; border-radius: 10px;
+  background: var(--banner); border: 1px solid var(--banner-border); font-size: 14px;
+}
+.card .chart#chart-history { height: 380px; }
+.grid.outlook { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .grid.outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .grid.outlook { grid-template-columns: minmax(0, 1fr); } }
+.outlook .card p.lede { color: var(--text-secondary); margin: 4px 0 10px; font-size: 14px; }
+.olist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.olist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; font-size: 14px; }
+.olist .name { font-weight: 600; }
+.olist .val { font-variant-numeric: tabular-nums; text-align: right; }
+.olist .why { grid-column: 1 / -1; color: var(--text-secondary); font-size: 13px; }
+.olist .meter { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--grid); position: relative; }
+.olist .meter span { position: absolute; left: 0; top: 0; height: 4px; border-radius: 2px; background: var(--pos); }
+.outlook h4 { font-size: 13px; color: var(--text-secondary); margin: 0 0 6px; font-weight: 600; }
+.outlook .olist + h4 { margin-top: 16px; }
+.card-head > div:first-child { flex: 1 1 240px; min-width: 0; }
+.card-head { flex-wrap: wrap; }
 .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
 .card .chart { width: 100%; height: 320px; }
 .card .chart.tall { height: 460px; }
@@ -214,6 +272,7 @@ button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; 
 .tip .tip-title { margin-bottom: 4px; }
 .tip .tip-row { display: flex; justify-content: space-between; gap: 16px; }
 .tip .tip-row span { color: var(--text-secondary); }
+.tip .tip-text { color: var(--text-secondary); line-height: 1.45; }
 
 .table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -232,6 +291,19 @@ th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; b
 .method .prose li { margin-bottom: 4px; }
 
 .foot { padding-top: 24px; padding-bottom: 32px; }
+
+@media (max-width: 560px) {
+  .card-actions { justify-content: flex-start; width: 100%; }
+  .card-actions select.ghost { max-width: none; flex: 1 1 auto; }
+  .top-meta { flex-wrap: wrap; gap: 4px 10px; }
+  /* Headline tiles become a swipeable row so the wheel is near the top. */
+  .kpis {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px;
+    margin-left: -16px; margin-right: -16px; padding: 0 16px 6px; scrollbar-width: none;
+  }
+  .kpis::-webkit-scrollbar { display: none; }
+  .kpi { flex: 0 0 64%; scroll-snap-align: start; }
+}
 
 @media (max-width: 860px) {
   .wheel-layout { grid-template-columns: minmax(0, 1fr); }

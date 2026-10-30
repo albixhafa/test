@@ -42,6 +42,16 @@ def test_align_rolls_weekend_flow_into_next_trading_day():
     assert panel["flow"]["BTC"].iloc[1] == pytest.approx(1_000 * (102 + 103 + 104))
 
 
+def test_abnormal_flow_removes_steady_drift():
+    days = pd.bdate_range("2024-01-01", periods=120)
+    steady = pd.Series(5e9, index=days)
+    steady.iloc[-1] = 8e9  # one unusually heavy day
+    out = an.abnormal_flow(pd.DataFrame({"SPY": steady}), window=60, min_periods=60)["SPY"]
+    assert out.iloc[:60].isna().all()  # no baseline yet
+    assert out.iloc[60:-1].abs().max() == pytest.approx(0.0)
+    assert out.iloc[-1] == pytest.approx(3e9)
+
+
 def test_allocate_flows_conserves_and_routes_excess_to_cash():
     result = an.allocate_flows({"SPY": -30.0, "QQQ": -10.0, "GLD": 15.0, "TLT": 5.0, "BIL": None})
     links = result["links"]
@@ -81,6 +91,27 @@ def test_class_flows_draws_from_cash_when_markets_net_buy():
     assert wheel["net"]["Cash"] == pytest.approx(-20.0)
     from_cash = sum(l["value"] for l in wheel["links"] if l["source"] == "Cash")
     assert from_cash == pytest.approx(20.0)
+
+
+def test_periodic_class_flows_labels_partial_periods_by_last_trading_day():
+    days = pd.bdate_range("2024-01-01", "2024-01-10")  # Mon 1st .. Wed 10th
+    flow = pd.DataFrame({"SPY": -1e9, "TLT": 0.5e9}, index=days)
+    out = an.periodic_class_flows(flow, {"SPY": "Stocks", "TLT": "Bonds"}, ["Stocks", "Bonds", "Cash"], "Cash", "W-FRI")
+    assert out["start"] == ["2024-01-01", "2024-01-08"]
+    assert out["end"] == ["2024-01-05", "2024-01-10"]
+    assert out["net"]["Stocks"] == [-5.0, -3.0]
+    assert out["net"]["Cash"] == [2.5, 1.5]
+    assert out["total"] == [5.0, 3.0]
+    # Stocks (0) -> Bonds (1) and Stocks -> Cash (2), as index triples.
+    assert sorted(l[:2] for l in out["links"][0]) == [[0, 1], [0, 2]]
+
+
+def test_flow_streaks_counts_inflow_weeks_and_acceleration():
+    weekly = pd.DataFrame({"Gold": [1, 1, -1, 1, 2, 2, 2, 2.0], "Stocks": [-1.0] * 8})
+    out = an.flow_streaks(weekly, lookback=8)
+    assert out["Gold"]["inflow_weeks"] == 7
+    assert out["Gold"]["recent_bn"] == 8.0 and out["Gold"]["prior_bn"] == 2.0
+    assert out["Stocks"]["inflow_weeks"] == 0
 
 
 def test_find_selloffs_zigzag():

@@ -169,6 +169,129 @@ function selloffBands(t) {
   };
 }
 
+// ---------- plain-language help ----------
+
+const INFO = {
+  regime: "A blend of six signals: stocks, small vs big companies, risky vs safe bonds, bitcoin, the dollar and the VIX, each compared with its own past year. Above +0.5 investors are reaching for risk; below −0.5 they are running from it.",
+  spy: "The 500 largest US companies. Shows the change over the past month and how far the index sits below its highest close of the past year.",
+  vix: "The market's expected swings in the S&P 500 over the next 30 days, priced from options. Around 12–20 is calm; above 30 is fear.",
+  btc: "Bitcoin's price change over the past month. It tends to move with investors' appetite for risk.",
+  stablecoins: "Crypto tokens pegged to the dollar, such as USDT and USDC. Their total supply is cash sitting on crypto rails, ready to buy.",
+  retail_mmf: "Money market funds held by households: where savers park cash that isn't in stocks or bonds. A rising total is money on the sidelines.",
+  net_liquidity: "The Federal Reserve's balance sheet minus the Treasury's cash account and the reverse repo facility. A rough gauge of cash available to markets; when it rises, asset prices tend to get support.",
+  rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
+  tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
+  flows: "Estimated from each day's price and trading volume, and measured against each market's own normal over the past year, so only unusual buying or selling counts. Not reported fund flows.",
+  cash: "Cash balances the wheel: if more was sold than bought across the tracked markets, the difference is shown flowing into cash, and if more was bought, it is shown coming out of cash.",
+};
+
+function showInfo(title, text, x, y) {
+  const tip = $("#tip");
+  tip.replaceChildren();
+  const head = document.createElement("div");
+  head.className = "tip-title";
+  head.textContent = title;
+  const body = document.createElement("div");
+  body.className = "tip-text";
+  body.textContent = text;
+  tip.append(head, body);
+  tip.hidden = false;
+  const box = tip.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(x - box.width / 2, window.innerWidth - box.width - 8))}px`;
+  tip.style.top = `${y + 14 + box.height > window.innerHeight ? y - box.height - 14 : y + 14}px`;
+}
+
+// A small (i) button that explains a term on hover, focus or tap.
+function infoButton(title, key) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "info";
+  btn.textContent = "i";
+  btn.setAttribute("aria-label", `What is ${title}?`);
+  const open = () => {
+    const r = btn.getBoundingClientRect();
+    showInfo(title, INFO[key], r.left + r.width / 2, r.bottom - 6);
+  };
+  btn.addEventListener("mouseenter", open);
+  btn.addEventListener("focus", open);
+  btn.addEventListener("click", (ev) => { ev.stopPropagation(); open(); });
+  btn.addEventListener("mouseleave", hideTip);
+  btn.addEventListener("blur", hideTip);
+  return btn;
+}
+
+function relativeTime(iso) {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 36) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} days ago`;
+}
+
+// ---------- right now: the page in five plain sentences ----------
+
+const SIGNAL_TEXT = {
+  "Equities": ["Stocks have had an unusually strong month.", "Stocks have had an unusually weak month."],
+  "Small vs large caps": ["Small companies are beating big ones, a sign of broad confidence.", "Small companies are lagging big ones: investors are getting choosier."],
+  "Credit vs Treasuries": ["Riskier bonds are beating safe Treasuries: credit markets are relaxed.", "Riskier bonds are lagging safe Treasuries, which often comes before stress in stocks."],
+  "Bitcoin": ["Crypto is unusually strong.", "Crypto is under unusual pressure."],
+  "Dollar (inverted)": ["The dollar is weakening unusually fast, which usually helps risk assets.", "The dollar is rising unusually fast, a classic flight to safety."],
+  "Volatility (inverted)": ["Expected volatility is unusually low: markets are calm.", "Expected volatility (VIX) is unusually high: markets are nervous."],
+};
+
+const REGIME_TEXT = {
+  "Risk-on": "investors are reaching for risk",
+  "Risk-off": "investors are running from risk",
+  "Neutral": "no strong rush into or out of risk",
+  "Unknown": "not enough data to judge",
+};
+
+function renderNow() {
+  const d = state.data;
+  const k = d.kpis;
+  const items = [];
+  const eps = d.selloffs.episodes;
+  const last = eps[eps.length - 1];
+  if (last && last.ongoing) {
+    items.push(["Stocks are in a selloff: ", `the S&P 500 is ${fmtPct(-Math.abs(k.drawdown), 1).replace("+", "")} from its high, which it hit on ${fmtDate(last.peak)}. The typical selloff since 2016 bottomed around ${fmtPct(median(eps.filter((e) => !e.ongoing).map((e) => e.drawdown)), 0)}.`]);
+  } else {
+    items.push(["No selloff under way: ", `the S&P 500 is ${fmtPct(k.drawdown, 1).replace(MINUS, "")} below its 1-year high and ${fmtPct(k.spy_20d)} over the past month.`]);
+  }
+  items.push([`Mood: ${d.regime.label}. `, `${REGIME_TEXT[d.regime.label] || ""} (score ${fmtNum(d.regime.score, 2, true)}).`]);
+  const month = { ...windowView(), wheel: d.windows["20"].wheel, span: "over the past month" };
+  items.push(["Money flow: ", `${wheelHeadline(month)}.`]);
+  const mmf = d.cash.retail_mmf;
+  if (mmf && mmf.length > 12) {
+    const now = mmf[mmf.length - 1][1];
+    const yearAgo = (mmf.find((x) => x[0] >= shiftDate(mmf[mmf.length - 1][0], -365)) || mmf[0])[1];
+    items.push(["Cash on the sidelines: ", `households hold ${fmtUsdBn(now)} in money funds, ${fmtUsdBn(now - yearAgo, true)} in a year${k.stablecoins_bn ? `, and stablecoins hold ${fmtUsdBn(k.stablecoins_bn)}` : ""}.`]);
+  }
+  const strong = Object.entries(d.regime.components)
+    .filter(([name, z]) => z != null && Math.abs(z) >= 1.5 && SIGNAL_TEXT[name])
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (strong.length) {
+    items.push(["Worth watching: ", strong.slice(0, 2).map(([name, z]) => SIGNAL_TEXT[name][z > 0 ? 0 : 1]).join(" ")]);
+  }
+  const list = $("#now-list");
+  list.replaceChildren();
+  items.forEach(([lead, text]) => {
+    const li = document.createElement("li");
+    const b = document.createElement("strong");
+    b.textContent = lead;
+    li.append(b, document.createTextNode(text));
+    list.appendChild(li);
+  });
+}
+
+function median(xs) {
+  const v = xs.filter((x) => x != null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
 // ---------- KPI tiles ----------
 
 function renderKpis() {
@@ -178,17 +301,18 @@ function renderKpis() {
   const pos = Math.max(-2, Math.min(2, r.score ?? 0));
   const tiles = [
     {
+      info: "regime",
       label: "Risk regime",
       value: r.label,
       delta: `Score ${fmtNum(r.score, 2, true)}`,
       gauge: ((pos + 2) / 4) * 100,
     },
-    { label: "S&P 500, 1 month", value: fmtPct(k.spy_20d), delta: `${fmtPct(k.drawdown)} from 1-year high` },
-    { label: "VIX", value: fmtNum(k.vix, 1), delta: "Implied S&P 500 volatility" },
-    { label: "Bitcoin, 1 month", value: fmtPct(k.btc_20d), delta: "Crypto risk appetite" },
-    { label: "Stablecoin supply", value: fmtUsdBn(k.stablecoins_bn), delta: `${fmtUsdBn(k.stablecoins_30d_bn, true)} in 30 days` },
-    { label: "Retail money funds", value: fmtUsdBn(k.retail_mmf_bn), delta: `${fmtUsdBn(k.retail_mmf_3m_bn, true)} in 3 months` },
-    { label: "Fed net liquidity", value: fmtUsdBn(k.net_liquidity_bn), delta: `${fmtUsdBn(k.net_liquidity_4w_bn, true)} in 4 weeks` },
+    { info: "spy", label: "S&P 500, 1 month", value: fmtPct(k.spy_20d), delta: `${fmtPct(k.drawdown)} from 1-year high` },
+    { info: "vix", label: "VIX", value: fmtNum(k.vix, 1), delta: "Implied S&P 500 volatility" },
+    { info: "btc", label: "Bitcoin, 1 month", value: fmtPct(k.btc_20d), delta: "Crypto risk appetite" },
+    { info: "stablecoins", label: "Stablecoin supply", value: fmtUsdBn(k.stablecoins_bn), delta: `${fmtUsdBn(k.stablecoins_30d_bn, true)} in 30 days` },
+    { info: "retail_mmf", label: "Money funds", value: fmtUsdBn(k.retail_mmf_bn), delta: `${fmtUsdBn(k.retail_mmf_3m_bn, true)} in 3 months` },
+    { info: "net_liquidity", label: "Fed net liquidity", value: fmtUsdBn(k.net_liquidity_bn), delta: `${fmtUsdBn(k.net_liquidity_4w_bn, true)} in 4 weeks` },
   ];
   const root = $("#kpis");
   root.replaceChildren();
@@ -198,6 +322,7 @@ function renderKpis() {
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = tile.label;
+    if (tile.info) label.appendChild(infoButton(tile.label, tile.info));
     const value = document.createElement("span");
     value.className = "value";
     value.textContent = tile.value;
@@ -261,14 +386,117 @@ function hideTip() {
   $("#tip").hidden = true;
 }
 
-function wheelHeadline(wheel, windowKey) {
-  const span = WINDOW_WORDS[windowKey] || `${windowKey} days`;
+function wheelHeadline(view) {
+  const wheel = view.wheel;
   const entries = Object.entries(wheel.net).sort((a, b) => a[1] - b[1]);
   const [source, out] = entries[0];
-  if (!wheel.links.length || out >= 0) return `Little money changed hands between classes over the past ${span}`;
+  if (!wheel.links.length || out >= 0) return `Little money changed hands between classes ${view.span}`;
   const dests = wheel.links.filter((l) => l.source === source).sort((a, b) => b.value - a.value).slice(0, 2);
   const where = dests.map((l) => `${l.target} (${fmtUsdBn(l.value)})`).join(" and ");
-  return `${fmtUsdBn(-out)} left ${source} over the past ${span}, mostly into ${where}`;
+  return `${fmtUsdBn(-out)} left ${source} ${view.span}, mostly into ${where}`;
+}
+
+// ---------- wheel views: the current window, a past week or month, or a past selloff ----------
+
+state.replay = null;
+
+function windowView() {
+  const w = state.data.windows[state.window];
+  const words = WINDOW_WORDS[state.window] || `${state.window} days`;
+  return { start: w.start, end: w.end, wheel: w.wheel, span: `over the past ${words}`, hub: `moved in the past ${words}` };
+}
+
+function historyView(kind, i) {
+  const h = state.data.history[kind];
+  const groups = state.data.groups;
+  const wheel = {
+    net: Object.fromEntries(groups.map((g) => [g, h.net[g][i]])),
+    links: h.links[i].map(([a, b, v]) => ({ source: groups[a], target: groups[b], value: v })),
+    total_bn: h.total[i],
+  };
+  const weekly = kind === "weekly";
+  const name = weekly ? `the week of ${fmtDate(h.start[i])}` : parseDay(h.end[i]).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+  return {
+    start: h.start[i], end: h.end[i], wheel,
+    span: `in ${name}`,
+    hub: weekly ? "moved that week" : "moved that month",
+    label: weekly ? `Week of ${fmtDate(h.start[i])}` : name,
+    key: `${kind}:${i}`,
+  };
+}
+
+function episodeView(i) {
+  const e = state.data.selloffs.episodes[i];
+  return {
+    start: e.peak, end: e.trough, wheel: e.wheel,
+    span: `during the ${fmtMonth(e.peak)} selloff`,
+    hub: "moved during the selloff",
+    label: `${fmtMonth(e.peak)} selloff: S&P 500 ${fmtPct(e.drawdown, 0)}${e.ongoing ? " (still going)" : ""}`,
+    key: `ep:${i}`,
+  };
+}
+
+function currentView() {
+  return state.replay || windowView();
+}
+
+function replay(view, scroll = true) {
+  state.replay = view;
+  syncReplayControls();
+  safely("liquidity wheel", renderWheel, theme());
+  if (scroll) document.querySelector('[data-card="wheel"]').scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function exitReplay() {
+  state.replay = null;
+  syncReplayControls();
+  safely("liquidity wheel", renderWheel, theme());
+}
+
+function syncReplayControls() {
+  const bar = $("#replay-bar");
+  const select = $("#replay-select");
+  bar.hidden = !state.replay;
+  if (state.replay) $("#replay-text").textContent = `Replaying ${state.replay.label}`;
+  let custom = select.querySelector('option[data-custom]');
+  if (state.replay && !select.querySelector(`option[value="${state.replay.key}"]`)) {
+    if (!custom) {
+      custom = document.createElement("option");
+      custom.dataset.custom = "1";
+      // Right after "Now", as a direct child (options[1] would be inside the optgroup).
+      select.insertBefore(custom, select.children[1] || null);
+    }
+    custom.value = state.replay.key;
+    custom.textContent = state.replay.label;
+  } else if (custom && (!state.replay || custom.value !== state.replay.key)) {
+    custom.remove();
+  }
+  select.value = state.replay ? state.replay.key : "";
+}
+
+function buildReplaySelect() {
+  const select = $("#replay-select");
+  select.replaceChildren();
+  const now = document.createElement("option");
+  now.value = "";
+  now.textContent = "Now (selected window)";
+  select.appendChild(now);
+  const group = document.createElement("optgroup");
+  group.label = "Past S&P 500 selloffs";
+  state.data.selloffs.episodes.map((e, i) => [e, i]).filter(([e]) => e.wheel).reverse().forEach(([, i]) => {
+    const o = document.createElement("option");
+    const v = episodeView(i);
+    o.value = v.key;
+    o.textContent = v.label;
+    group.appendChild(o);
+  });
+  select.appendChild(group);
+}
+
+function viewFromKey(key) {
+  if (!key) return null;
+  const [kind, i] = key.split(":");
+  return kind === "ep" ? episodeView(+i) : historyView(kind, +i);
 }
 
 // Money flowing through the wheel: dots travel along each ribbon from source to target.
@@ -319,8 +547,8 @@ function setFlowPaused(paused) {
 function renderWheel(t) {
   stopFlow();
   flowParticles = [];
-  const w = state.data.windows[state.window];
-  const wheel = w.wheel;
+  const view = currentView();
+  const wheel = view.wheel;
   const groups = state.data.groups;
   const idx = Object.fromEntries(groups.map((g, i) => [g, i]));
   const color = (g) => t.groups[idx[g] % t.groups.length];
@@ -329,8 +557,8 @@ function renderWheel(t) {
   const outOf = (i) => d3.sum(matrix[i]);
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
-  $("#wheel-headline").textContent = wheelHeadline(wheel, state.window);
-  $("#wheel-sub").textContent = `${fmtRange(w.start, w.end)}. Estimated from price and volume, not reported fund flows.`;
+  $("#wheel-headline").textContent = wheelHeadline(view);
+  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.`;
 
   // Side list: net per class, biggest inflow first.
   const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
@@ -391,7 +619,7 @@ function renderWheel(t) {
     .attr("width", width)
     .attr("height", height)
     .attr("role", "img")
-    .attr("aria-label", `${wheelHeadline(wheel, state.window)}. ${fmtUsdBn(wheel.total_bn)} moved between classes in total.`);
+    .attr("aria-label", `${wheelHeadline(view)}. ${fmtUsdBn(wheel.total_bn)} moved between classes in total.`);
 
   const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
     .attr("class", "ribbon")
@@ -563,7 +791,7 @@ function renderWheel(t) {
     .attr("y", narrow ? 16 : 20)
     .attr("fill", t.text)
     .attr("font-size", narrow ? 11 : 13)
-    .text(`moved in the past ${WINDOW_WORDS[state.window] || state.window + " days"}`);
+    .text(view.hub);
 }
 
 // ---------- rotation map ----------
@@ -728,6 +956,87 @@ function renderIntensity(t) {
     ]));
 }
 
+// ---------- liquidity history ----------
+
+state.history = { kind: "weekly", mode: "flows" };
+
+function renderHistory(t) {
+  const { kind, mode } = state.history;
+  const h = state.data.history[kind];
+  const groups = state.data.groups;
+  const color = (g) => t.groups[state.groupIndex[g] % t.groups.length];
+  document.querySelectorAll("#history-kind button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.kind === kind)));
+  document.querySelectorAll("#history-mode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
+
+  const totals = Object.fromEntries(groups.map((g) => [g, d3.sum(h.net[g])]));
+  const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const [topIn, topOut] = [ranked[0], ranked[ranked.length - 1]];
+  const span = `${fmtDate(h.start[0])} – ${fmtDate(h.end[h.end.length - 1])}`;
+  $("#history-headline").textContent =
+    `Since ${fmtMonth(h.start[0])}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})`;
+  $("#history-sub").textContent = mode === "flows"
+    ? `Net flow per ${kind === "weekly" ? "week" : "month"}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.`
+    : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.`;
+
+  const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v)); };
+  const series = groups.map((g, gi) => {
+    const values = mode === "flows" ? h.net[g] : running(h.net[g]);
+    const base = {
+      name: g,
+      data: h.end.map((d, i) => [d, Math.round(values[i] * 100) / 100]),
+      itemStyle: { color: color(g) },
+      emphasis: { focus: "series" },
+      markArea: gi === 0 ? selloffBands(t) : undefined,
+    };
+    return mode === "flows"
+      ? { ...base, type: "bar", stack: "net", barMaxWidth: 14, itemStyle: { color: color(g), borderColor: t.surface, borderWidth: 0.5 } }
+      : { ...base, type: "line", showSymbol: false, lineStyle: { width: 2, color: color(g) },
+          endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 }, labelLayout: { moveOverlap: "shiftY" } };
+  });
+
+  const c = chart("chart-history");
+  c.setOption({
+    grid: { left: 8, right: mode === "cumulative" && !narrowScreen() ? 130 : 16, top: narrowScreen() ? 64 : 40, bottom: 24, containLabel: true },
+    legend: {
+      top: 0, left: 0, textStyle: { color: t.text2, fontSize: 12 }, inactiveColor: t.grid,
+      icon: mode === "flows" ? "roundRect" : "path://M0,0 L12,0 L12,2 L0,2 Z", itemWidth: 12, itemHeight: mode === "flows" ? 10 : 2,
+    },
+    tooltip: {
+      ...tooltipBase(t),
+      trigger: "axis",
+      axisPointer: { type: mode === "flows" ? "shadow" : "line", lineStyle: { color: t.axis } },
+      formatter: (ps) => {
+        const i = ps[0].dataIndex;
+        const head = `<div style="margin-bottom:4px">${esc(fmtRange(h.start[i], h.end[i]))}</div>`;
+        const rows = ps.slice().sort((a, b) => b.data[1] - a.data[1]).map((p) => row(p.seriesName, fmtUsdBn(p.data[1], true), p.color)).join("");
+        const foot = mode === "flows" ? row("Total moved", fmtUsdBn(h.total[i])) : "";
+        return head + rows + foot + `<div style="margin-top:6px;opacity:.7">Click to replay in the wheel</div>`;
+      },
+    },
+    xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
+    yAxis: { type: "value", ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
+    dataZoom: [{ type: "inside", start: narrowScreen() && kind === "weekly" ? 66 : 0, end: 100 }],
+    series,
+  }, true);
+  c.off("click");
+  c.on("click", (p) => replay(historyView(kind, p.dataIndex)));
+  // Clicking anywhere in a column (not only on a bar segment) replays that period too.
+  c.getZr().off("click");
+  c.getZr().on("click", (ev) => {
+    if (ev.target) return;
+    const pt = [ev.offsetX, ev.offsetY];
+    if (!c.containPixel("grid", pt)) return;
+    const x = c.convertFromPixel({ seriesIndex: 0 }, pt)[0];
+    const ends = h.end.map((d) => parseDay(d).getTime());
+    let best = 0;
+    ends.forEach((e, i) => { if (Math.abs(e - x) < Math.abs(ends[best] - x)) best = i; });
+    replay(historyView(kind, best));
+  });
+
+  table(cardTable("history"), ["Period", ...groups, "Total moved"],
+    h.end.map((d, i) => [fmtRange(h.start[i], d), ...groups.map((g) => fmtUsdBn(h.net[g][i], true)), fmtUsdBn(h.total[i])]).reverse());
+}
+
 // ---------- selloffs ----------
 
 function renderPlaybook(t) {
@@ -850,6 +1159,11 @@ function renderHeatmap(t) {
       emphasis: { itemStyle: { borderColor: t.text, borderWidth: 1 } },
     }],
   }, true);
+  c.off("click");
+  c.on("click", (p) => {
+    const i = state.data.selloffs.episodes.indexOf(eps[p.data[1]]);
+    if (state.data.selloffs.episodes[i].wheel) replay(episodeView(i));
+  });
   const cashKeys = [["stablecoins", "Stablecoins"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
   table(cardTable("heatmap"),
     ["Selloff", "S&P 500", ...tickers.filter((tk) => tk !== "SPY").map(shortName), ...cashKeys.map((c) => `Δ ${c[1]}`)],
@@ -859,6 +1173,145 @@ function renderHeatmap(t) {
       ...tickers.filter((tk) => tk !== "SPY").map((tk) => fmtPct(e.assets[tk] && e.assets[tk].ret)),
       ...cashKeys.map(([k]) => fmtUsdBn(e.cash[k], true)),
     ]));
+}
+
+// ---------- outlook: historically grounded signals ----------
+
+function outlookCard(title, lede) {
+  const card = document.createElement("article");
+  card.className = "card";
+  const h = document.createElement("h3");
+  h.textContent = title;
+  const p = document.createElement("p");
+  p.className = "lede";
+  p.textContent = lede;
+  card.append(h, p);
+  return card;
+}
+
+function outlookList(card, rows, heading) {
+  if (heading) {
+    const h = document.createElement("h4");
+    h.textContent = heading;
+    card.appendChild(h);
+  }
+  const ul = document.createElement("ul");
+  ul.className = "olist";
+  rows.forEach((r) => {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = r.name;
+    const val = document.createElement("span");
+    val.className = "val";
+    val.textContent = r.value;
+    li.append(name, val);
+    if (r.meter != null) {
+      const m = document.createElement("div");
+      m.className = "meter";
+      const f = document.createElement("span");
+      f.style.width = `${Math.round(Math.max(0, Math.min(1, r.meter)) * 100)}%`;
+      m.appendChild(f);
+      li.appendChild(m);
+    }
+    if (r.why) {
+      const w = document.createElement("span");
+      w.className = "why";
+      w.textContent = r.why;
+      li.appendChild(w);
+    }
+    ul.appendChild(li);
+  });
+  card.appendChild(ul);
+}
+
+function renderOutlook() {
+  const d = state.data;
+  const grid = $("#outlook-grid");
+  grid.replaceChildren();
+  const pb = d.selloffs.playbook;
+  const n = pb.length ? pb[0].episodes : 0;
+
+  // 1. If stocks sell off next: the markets that most reliably held up.
+  const havens = pb.slice().sort((a, b) => b.hit_rate - a.hit_rate || b.median_ret - a.median_ret).slice(0, 4);
+  const hurt = pb.slice().sort((a, b) => a.median_ret - b.median_ret).slice(0, 3);
+  const c1 = outlookCard("If stocks sell off next", `In the ${n} S&P 500 selloffs since 2016, these markets most often held up, and these were hit hardest.`);
+  outlookList(c1, havens.map((r) => ({
+    name: assetName(r.ticker),
+    value: `rose ${Math.round(r.hit_rate * r.episodes)} of ${r.episodes}`,
+    meter: r.hit_rate,
+    why: `Median move during a selloff ${fmtPct(r.median_ret)}`,
+  })), "Usually held up");
+  outlookList(c1, hurt.map((r) => ({ name: assetName(r.ticker), value: fmtPct(r.median_ret), why: `Typical fall while the S&P 500 dropped ${fmtPct(median(d.selloffs.episodes.filter((e) => !e.ongoing).map((e) => e.drawdown)), 0)}` })), "Hit hardest");
+  grid.appendChild(c1);
+
+  // 2. After the bottom: who bounced back fastest.
+  const rebound = pb.filter((r) => r.median_rebound != null).sort((a, b) => b.median_rebound - a.median_rebound).slice(0, 5);
+  const c2 = outlookCard("After the bottom", `Once a selloff ended, these markets bounced back fastest over the next ${d.selloffs.rebound_days} trading days (median).`);
+  outlookList(c2, rebound.map((r) => ({ name: assetName(r.ticker), value: fmtPct(r.median_rebound), why: `After falling a median ${fmtPct(r.median_ret)} in the selloff` })));
+  grid.appendChild(c2);
+
+  // 3. Momentum: where money has been building or leaving over the last 8 weeks.
+  const sa = Object.entries(d.streaks.assets);
+  const building = sa.filter(([, v]) => v.total_bn > 0).sort((a, b) => b[1].total_bn - a[1].total_bn).slice(0, 3);
+  const leaving = sa.filter(([, v]) => v.total_bn < 0).sort((a, b) => a[1].total_bn - b[1].total_bn).slice(0, 3);
+  const streakWhy = (v) => {
+    const buying = v.total_bn > 0;
+    const faster = buying ? v.recent_bn > v.prior_bn : v.recent_bn < v.prior_bn;
+    const pace = buying ? (faster ? "buying picking up" : "buying slowing") : (faster ? "selling picking up" : "selling easing");
+    return `Inflows in ${v.inflow_weeks} of the last ${v.weeks} weeks; ${pace} this past month`;
+  };
+  const c3 = outlookCard("Momentum: last 8 weeks", "Markets with the most unusual buying or selling over the past two months. Persistent flows often continue for a while.");
+  outlookList(c3, building.map(([t, v]) => ({ name: assetName(t), value: fmtUsdBn(v.total_bn, true), why: streakWhy(v) })), "Money building");
+  outlookList(c3, leaving.map(([t, v]) => ({ name: assetName(t), value: fmtUsdBn(v.total_bn, true), why: streakWhy(v) })), "Money leaving");
+  grid.appendChild(c3);
+
+  // 4. Price vs flow: quiet buying into weakness, selling into strength (past month).
+  const m = d.windows["20"].assets;
+  const quiet = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity >= 0.05 && v.ret < 0).sort((a, b) => b[1].intensity - a[1].intensity);
+  const selling = Object.entries(m).filter(([, v]) => v.intensity != null && v.intensity <= -0.05 && v.ret > 0).sort((a, b) => a[1].intensity - b[1].intensity);
+  const c4 = outlookCard("Price and flow disagree", "Over the past month. Buying while the price falls can mean patient money is accumulating; selling into a rally can mean holders are cashing out.");
+  const divRows = (rows, label) => rows.slice(0, 3).map(([t, v]) => ({
+    name: assetName(t), value: fmtPct(v.ret), why: `${label} ${fmtPct(Math.abs(v.intensity), 0, false)} of normal turnover`,
+  }));
+  if (quiet.length) outlookList(c4, divRows(quiet, "Price fell, yet net buying was"), "Quiet buying");
+  if (selling.length) outlookList(c4, divRows(selling, "Price rose, yet net selling was"), "Selling into strength");
+  if (!quiet.length && !selling.length) outlookList(c4, [{ name: "No clear divergences", value: "", why: "Prices and flows mostly moved together this month." }]);
+  grid.appendChild(c4);
+
+  // 6 (placed first). Selloffs in perspective: how often, how deep, how long, and where we are.
+  const done = d.selloffs.episodes.filter((e) => !e.ongoing);
+  if (done.length) {
+    const years = (parseDay(d.meta.as_of) - parseDay(d.selloffs.episodes[0].peak)) / (365.25 * 864e5);
+    const months = Math.round((years * 12) / done.length);
+    const last = d.selloffs.episodes[d.selloffs.episodes.length - 1];
+    const c0 = outlookCard("Selloffs in perspective", `Drops of ${Math.round(d.selloffs.threshold * 100)}% or more are a normal part of investing. Here is what a typical one has looked like since 2016.`);
+    const rows0 = [
+      { name: "How often", value: `about every ${months} months`, why: `${done.length} completed selloffs in ${Math.round(years)} years` },
+      { name: "Typical depth", value: fmtPct(median(done.map((e) => e.drawdown)), 0), why: `Deepest: ${fmtPct(Math.min(...done.map((e) => e.drawdown)), 0)} (${fmtMonth(done.reduce((a, b) => (a.drawdown < b.drawdown ? a : b)).peak)})` },
+      { name: "Typical length", value: `${Math.round(median(done.map((e) => e.days)) / 5)} weeks`, why: "From the peak to the bottom, in trading weeks" },
+      last && last.ongoing
+        ? { name: "Right now", value: `${fmtPct(last.drawdown, 1)} so far`, why: `A selloff has been under way since ${fmtDate(last.peak)}` }
+        : { name: "Right now", value: `${fmtPct(d.kpis.drawdown, 1)}`, why: `From the 1-year high. Last selloff ended ${fmtDate(done[done.length - 1].trough)}` },
+    ];
+    outlookList(c0, rows0);
+    grid.prepend(c0);
+  }
+
+  // 5. Dry powder: cash that could come back into markets.
+  const k = d.kpis;
+  const c5 = outlookCard("Dry powder", "Cash parked on the sidelines is potential fuel for markets when sentiment turns.");
+  const rows = [];
+  const mmf = d.cash.retail_mmf;
+  if (mmf && mmf.length > 12) {
+    const last = mmf[mmf.length - 1];
+    const ago = (mmf.find((x) => x[0] >= shiftDate(last[0], -365)) || mmf[0])[1];
+    rows.push({ name: "Household money funds", value: fmtUsdBn(last[1]), why: `${fmtUsdBn(last[1] - ago, true)} over the past year` });
+  }
+  if (k.stablecoins_bn != null) rows.push({ name: "Stablecoins", value: fmtUsdBn(k.stablecoins_bn), why: `${fmtUsdBn(k.stablecoins_30d_bn, true)} in 30 days: ${k.stablecoins_30d_bn >= 0 ? "new buying power arriving in crypto" : "crypto's cash pile is shrinking"}` });
+  if (k.net_liquidity_bn != null) rows.push({ name: "Fed net liquidity", value: fmtUsdBn(k.net_liquidity_bn), why: `${fmtUsdBn(k.net_liquidity_4w_bn, true)} in 4 weeks: ${k.net_liquidity_4w_bn >= 0 ? "a tailwind for markets" : "a mild headwind for markets"}` });
+  outlookList(c5, rows);
+  grid.appendChild(c5);
 }
 
 // ---------- cash buckets ----------
@@ -880,6 +1333,7 @@ function renderCash(t) {
       card.className = "card mini";
       card.innerHTML = `<h3></h3><p class="muted small"></p><div class="figure"></div><p class="muted small delta"></p><div class="chart" id="chart-cash-${p.key}"></div>`;
       card.querySelector("h3").textContent = p.title;
+      if (INFO[p.key]) card.querySelector("h3").appendChild(infoButton(p.title, p.key));
       card.querySelector("p").textContent = p.note;
       grid.appendChild(card);
     });
@@ -1071,10 +1525,13 @@ function safely(name, fn, t) {
 
 function renderAll() {
   const t = theme();
+  safely("summary", renderNow);
   safely("headline", renderKpis);
   renderWindow();
+  safely("liquidity history", renderHistory, t);
   safely("selloff playbook", renderPlaybook, t);
   safely("selloff heatmap", renderHeatmap, t);
+  safely("outlook", renderOutlook);
   safely("cash", renderCash, t);
   safely("risk appetite", renderRegime, t);
   safely("performance", renderPerformance, t);
@@ -1109,6 +1566,8 @@ function wireControls() {
   document.querySelectorAll("#window-picker button").forEach((b) => {
     b.addEventListener("click", () => {
       state.window = b.dataset.window;
+      state.replay = null;
+      syncReplayControls();
       storage("set", "lfm-window", state.window);
       renderWindow();
     });
@@ -1145,6 +1604,41 @@ function wireControls() {
       state.wheelVisible = entry.isIntersecting;
       runFlow();
     }).observe(document.getElementById("chart-wheel"));
+  }
+
+  $("#replay-select").addEventListener("change", (ev) => {
+    const view = viewFromKey(ev.target.value);
+    if (view) replay(view, false);
+    else exitReplay();
+  });
+  $("#replay-exit").addEventListener("click", exitReplay);
+  document.querySelectorAll("#history-kind button").forEach((b) => b.addEventListener("click", () => {
+    state.history.kind = b.dataset.kind;
+    safely("liquidity history", renderHistory, theme());
+  }));
+  document.querySelectorAll("#history-mode button").forEach((b) => b.addEventListener("click", () => {
+    state.history.mode = b.dataset.mode;
+    safely("liquidity history", renderHistory, theme());
+  }));
+
+  if ("IntersectionObserver" in window) {
+    const links = new Map([...document.querySelectorAll(".section-nav a")].map((a) => [a.getAttribute("href").slice(1), a]));
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        links.forEach((a) => a.removeAttribute("aria-current"));
+        const a = links.get(e.target.id);
+        if (a) {
+          a.setAttribute("aria-current", "true");
+          // Keep the active link visible in the horizontally scrolling menu without moving the page.
+          const nav = a.parentElement;
+          if (a.offsetLeft < nav.scrollLeft || a.offsetLeft + a.offsetWidth > nav.scrollLeft + nav.clientWidth) {
+            nav.scrollTo({ left: a.offsetLeft - 16, behavior: "smooth" });
+          }
+        }
+      });
+    }, { rootMargin: "-45% 0px -50% 0px" });
+    links.forEach((_, id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
   }
 
   document.addEventListener("pointerdown", (ev) => {
@@ -1190,11 +1684,15 @@ async function main() {
   data.assets.forEach((a) => { state.assets[a.ticker] = a; });
   data.groups.forEach((g, i) => { state.groupIndex[g] = i; });
 
+  buildReplaySelect();
+  syncReplayControls();
   const saved = storage("get", "lfm-window");
   if (saved && data.windows[saved]) state.window = saved;
 
   $("#demo-banner").hidden = !data.meta.demo;
   $("#asof").textContent = `Data through ${fmtDate(data.meta.as_of)}`;
+  $("#updated").textContent = `· updated ${relativeTime(data.meta.generated_at)}`;
+  $("#updated").title = new Date(data.meta.generated_at).toLocaleString();
   if (data.meta.warnings && data.meta.warnings.length) {
     const b = $("#warnings");
     b.hidden = false;
