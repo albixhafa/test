@@ -1102,8 +1102,8 @@ function renderCloseup(t) {
   const stats = [
     ["Past month", fmtPct(m.ret), m.intensity != null ? `Net ${m.intensity >= 0 ? "buying" : "selling"} ${fmtPct(Math.abs(m.intensity), 0, false)} of normal turnover` : ""],
     st ? ["Last 8 weeks", fmtUsdBn(st.total_bn, true), `Inflows in ${st.inflow_weeks} of ${st.weeks} weeks`] : null,
-    pb ? ["In past selloffs", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
-    pb && pb.median_rebound != null ? ["After the bottom", fmtPct(pb.median_rebound), `Median over the next ${d.selloffs.rebound_days} trading days`] : null,
+    pb && tk !== d.meta.benchmark ? ["In past selloffs", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
+    pb && pb.median_rebound != null && tk !== d.meta.benchmark ? ["After the bottom", fmtPct(pb.median_rebound), `Median over the next ${d.selloffs.rebound_days} trading days`] : null,
   ].filter(Boolean);
   const ul = $("#closeup-stats");
   ul.replaceChildren();
@@ -1517,7 +1517,9 @@ function shiftDate(iso, days) {
 
 function lineOptions(t, { series, yFormatter, yMin, yMax, valueFormatter }) {
   return {
-    grid: { left: 48, right: 110, top: 36, bottom: 28 },
+    // Phones: the legend wraps to two rows and end labels would be clipped, so give the
+    // legend room and let it carry the names.
+    grid: narrowScreen() ? { left: 40, right: 12, top: 60, bottom: 28 } : { left: 48, right: 110, top: 36, bottom: 28 },
     legend: {
       top: 0,
       left: 0,
@@ -1552,7 +1554,7 @@ function lineSeries(t, name, data, color, extra = {}) {
     connectNulls: true,
     lineStyle: { width: 2, color },
     itemStyle: { color },
-    endLabel: { show: true, formatter: "{a}", color: t.text2, fontSize: 11 },
+    endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 },
     labelLayout: { moveOverlap: "shiftY" },
     emphasis: { focus: "series" },
     ...extra,
@@ -1622,7 +1624,14 @@ function renderPerformance(t) {
 
 function renderCorrelation(t) {
   const c = state.data.correlations;
-  const tickers = Object.keys(c.series);
+  // One market per class, so no two lines share a colour.
+  const seen = new Set();
+  const tickers = Object.keys(c.series).filter((tk) => {
+    const g = state.assets[tk] && state.assets[tk].group;
+    if (seen.has(g)) return false;
+    seen.add(g);
+    return true;
+  });
   chart("chart-correlation").setOption(lineOptions(t, {
     series: tickers.map((tk, idx) => lineSeries(t, assetName(tk), c.dates.map((d, i) => [d, c.series[tk][i]]), assetColor(tk, t), idx === 0 ? {
       markLine: { silent: true, symbol: "none", lineStyle: { color: t.axis, type: "solid", width: 1 }, label: { show: false }, data: [{ yAxis: 0 }] },
