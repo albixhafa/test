@@ -196,6 +196,41 @@ def flow_streaks(weekly_net, lookback=8):
     return out
 
 
+def pack_columns(df, sig=6):
+    """Columns as plain lists for JSON, rounded to `sig` significant digits, NaN as None."""
+    def num(v):
+        return None if v is None or not np.isfinite(v) else float(f"{v:.{sig}g}")
+    return {col: [num(v) for v in df[col].to_numpy(dtype="float64")] for col in df.columns}
+
+
+def range_series(flow, dollar_volume, close, daily_days=756, monthly_from="2017-01-01"):
+    """Per-market series the dashboard aggregates for any date range the viewer picks.
+
+    Daily rows for the last `daily_days` trading days, and monthly rows (sums of flow and
+    dollar volume, last close) since `monthly_from`. Flow and dollar volume are in USD
+    billions; each monthly row carries its first and last trading day.
+    """
+    d = slice(-daily_days, None)
+    daily = {
+        "dates": [x.strftime("%Y-%m-%d") for x in flow.index[d]],
+        "flow": pack_columns(flow.iloc[d] / 1e9, 4),
+        "dv": pack_columns(dollar_volume.iloc[d] / 1e9, 4),
+        "close": pack_columns(close.iloc[d]),
+    }
+    keep = flow.index >= pd.Timestamp(monthly_from)
+    f, v, c = flow[keep], dollar_volume[keep], close[keep]
+    days = f.index.to_series()
+    first, last = days.resample("ME").min().dropna(), days.resample("ME").max().dropna()
+    monthly = {
+        "start": [x.strftime("%Y-%m-%d") for x in first],
+        "end": [x.strftime("%Y-%m-%d") for x in last],
+        "flow": pack_columns((f.resample("ME").sum() / 1e9).loc[first.index], 4),
+        "dv": pack_columns((v.resample("ME").sum() / 1e9).loc[first.index], 4),
+        "close": pack_columns(c.resample("ME").last().loc[first.index]),
+    }
+    return {"daily": daily, "monthly": monthly}
+
+
 def find_selloffs(close, threshold):
     """Zig-zag swing detection: peak-to-trough falls of at least `threshold`.
 

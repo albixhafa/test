@@ -108,7 +108,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "score": an._num(latest_score, 3),
         "label": an.regime_label(latest_score),
         "components": {k: an._num(v, 3) for k, v in parts.iloc[-1].items()},
-        "history": _series_points(score.iloc[-504:], 3),
+        "history": _series_points(score, 3),
     }
 
     # Relative performance over the last year, indexed to 100.
@@ -120,11 +120,16 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     }
 
     corr_tickers = [t for t in ["BTC-USD", "GLD", "TLT", "UUP", "HYG"] if t in tickers]
-    corr = an.rolling_correlation(close, BENCHMARK, corr_tickers).iloc[-756::5]
-    correlations = {
-        "dates": [d.strftime("%Y-%m-%d") for d in corr.index],
-        "series": {t: [None if pd.isna(v) else round(float(v), 3) for v in corr[t]] for t in corr_tickers},
-    }
+    # Rolling correlation: weekly samples for the whole history, daily for the last three years.
+    corr_all = an.rolling_correlation(close, BENCHMARK, corr_tickers).dropna(how="all")
+
+    def corr_block(frame):
+        return {
+            "dates": [d.strftime("%Y-%m-%d") for d in frame.index],
+            "series": {t: [None if pd.isna(v) else round(float(v), 3) for v in frame[t]] for t in corr_tickers},
+        }
+
+    correlations = {**corr_block(corr_all.iloc[::5]), "daily": corr_block(corr_all.iloc[-756:])}
 
     # Selloff history, with a wheel for each selloff so it can be replayed.
     asset_group = {a.ticker: a.group for a in ASSETS}
@@ -139,13 +144,14 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     # Flow history between classes: weekly for three years, monthly since the start.
     flow = panel["flow"][tickers]
     history = {
-        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=156),
+        # 160 weeks, so weekly history covers the full three years of daily rows.
+        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=160),
         "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, CASH_GROUP, "ME"),
     }
     weekly_assets = (flow.resample("W-FRI").sum() / 1e9).iloc[-26:]
 
     # Market close-up: weekly net flow and closing price for every market, three years.
-    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-156:]
+    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-160:]
     wk_close = close.resample("W-FRI").last().reindex(wk_flow.index)
     wk_end = flow.index.to_series().resample("W-FRI").max().reindex(wk_flow.index)
     markets_weekly = {
@@ -163,7 +169,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     for key, s in cash_series.items():
         if s is None or s.empty:
             continue
-        s = s[s.index >= "2019-01-01"]
+        s = s[s.index >= "2016-01-01"]
         if key in ("stablecoins", "rrp"):
             s = s.resample("W-FRI").last()
         cash_out[key] = _series_points(s, 1)
@@ -210,6 +216,7 @@ def build(prices, vix, macro, stable, demo=False, log=None):
         "cash": cash_out,
         "history": history,
         "markets_weekly": markets_weekly,
+        "series": an.range_series(flow, panel["dollar_volume"][tickers], close),
         "streaks": streaks,
         "selloffs": {
             "threshold": SELLOFF_THRESHOLD,
