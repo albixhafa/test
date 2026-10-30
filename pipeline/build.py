@@ -144,13 +144,14 @@ def build(prices, vix, macro, stable, demo=False, log=None):
     # Flow history between classes: weekly for three years, monthly since the start.
     flow = panel["flow"][tickers]
     history = {
-        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=156),
+        # 160 weeks, so weekly history covers the full three years of daily rows.
+        "weekly": an.periodic_class_flows(flow, asset_group, GROUPS, CASH_GROUP, "W-FRI", periods=160),
         "monthly": an.periodic_class_flows(flow[flow.index >= "2017-01-01"], asset_group, GROUPS, CASH_GROUP, "ME"),
     }
     weekly_assets = (flow.resample("W-FRI").sum() / 1e9).iloc[-26:]
 
     # Market close-up: weekly net flow and closing price for every market, three years.
-    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-156:]
+    wk_flow = (flow.resample("W-FRI").sum() / 1e9).iloc[-160:]
     wk_close = close.resample("W-FRI").last().reindex(wk_flow.index)
     wk_end = flow.index.to_series().resample("W-FRI").max().reindex(wk_flow.index)
     markets_weekly = {
