@@ -32,6 +32,8 @@ def collect_live(log):
     for asset in ASSETS:
         try:
             prices[asset.ticker] = sources.fetch_yahoo(asset.ticker, HISTORY_START)
+            if asset.usd_volume:
+                prices[asset.ticker] = sources.volume_to_units(prices[asset.ticker])
         except Exception as exc:  # noqa: BLE001 - try the fallback, then record and move on
             if asset.stooq:
                 try:

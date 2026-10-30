@@ -101,6 +101,12 @@ def test_parse_yahoo_chart():
     assert df["adj_close"].iloc[0] == 1.4
 
 
+def test_volume_to_units_gives_usd_dollar_volume():
+    df = ohlcv([50_000.0, 60_000.0], volume=[3e10, 4e10])
+    converted = sources.volume_to_units(df)
+    assert (converted["close"] * converted["volume"]).tolist() == pytest.approx([3e10, 4e10])
+
+
 def test_parse_fred_csv_handles_missing_values():
     s = sources.parse_fred_csv("observation_date,RRPONTSYD\n2024-01-02,500.1\n2024-01-03,.\n")
     assert s.tolist() == [500.1]

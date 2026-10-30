@@ -54,6 +54,13 @@ def parse_yahoo_chart(payload):
     return df
 
 
+def volume_to_units(df):
+    """Convert a USD-denominated volume column to units so close * volume is dollar volume."""
+    df = df.copy()
+    df["volume"] = df["volume"] / df["close"]
+    return df
+
+
 def fetch_yahoo(ticker, start):
     period1 = int(pd.Timestamp(start).timestamp())
     period2 = int(time.time())

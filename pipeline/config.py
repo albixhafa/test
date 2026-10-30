@@ -9,6 +9,7 @@ class Asset:
     name: str
     group: str
     stooq: str | None = None  # fallback symbol on stooq.com (ETFs only)
+    usd_volume: bool = False  # Yahoo reports volume in USD rather than units (crypto pairs)
 
 
 # Groups are listed in display order; the dashboard assigns colours by this order.
@@ -38,8 +39,8 @@ ASSETS = [
     Asset("GLD", "Gold", "Real assets", "gld.us"),
     Asset("DBC", "Commodities", "Real assets", "dbc.us"),
     Asset("UUP", "US dollar", "US dollar", "uup.us"),
-    Asset("BTC-USD", "Bitcoin", "Crypto"),
-    Asset("ETH-USD", "Ether", "Crypto"),
+    Asset("BTC-USD", "Bitcoin", "Crypto", usd_volume=True),
+    Asset("ETH-USD", "Ether", "Crypto", usd_volume=True),
 ]
 
 BENCHMARK = "SPY"
