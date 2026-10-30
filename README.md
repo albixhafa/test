@@ -16,8 +16,8 @@ Four sections, each one card with tabs, so the page stays short:
 | Section | What it shows |
 |---|---|
 | **Now** | The answer in one sentence ("Money is leaving X and Y and going into A and B"), today's mood, S&P 500 drawdown and VIX, then **In**, **Out**, **Overall** (net new money and money market funds) and **Worth watching** (record-sized flows, crowded futures, nervous credit markets) for the selected range |
-| **Where money is flowing** | Tabs: **Wheel** (money between stocks, bonds, cash, gold & commodities, crypto and the sidelines; can replay any past week, month or selloff), **Funds** (money in and out of each fund, in dollars or as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, **history** by day, week or month, as flows or running totals |
-| **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to replay it in the wheel) |
+| **Where money is flowing** | Tabs: **Classes** (money in and out of stocks, bonds, cash, gold & commodities and crypto as bars, with net new money on top; tap a class to open its funds; can show any past week, month or selloff), **Map** (every fund as a tile sized by its assets and coloured by its flow as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, **history** by day, week or month, as flows or running totals |
+| **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to see its flows by class) |
 | **Backdrop** | Tabs, each a compact table with sparklines and a chart of the selected row: **Cash** (stablecoins, money market funds and their estimated net flows, retail money funds, reverse repo, TGA, Fed net liquidity), **Rates** (T-bill, 10-year, 2s10s curve, real yield, high-yield spread, financial conditions), **Positioning** (speculators' futures positions in 11 markets as a percentile of three years), **Risk** (risk appetite score and its ingredients, correlations with stocks) |
 
 Tapping any fund opens its **close-up**: price and flows over the range, its last 8 weeks and its record in past selloffs.
@@ -46,11 +46,10 @@ whole market, so read sizes as a sample and directions as the signal. Bond and i
 coverage is thinner than stocks and gold, which is why the page also shows each flow as a
 share of the fund's size.
 
-The liquidity wheel adds flows up within each class and balances them through the
-**Sidelines**: money that came into the tracked funds from outside (bank deposits, other
-funds) is shown leaving the sidelines, money that left them altogether is shown going to the
-sidelines. Between classes, each net outflow is split across net inflows in proportion to
-size; read it as a picture of rotation, not a ledger of who bought from whom.
+The Classes view adds flows up within each class and shows the **net new money** on top:
+what came into the tracked funds from outside (bank deposits, other funds) or left them
+altogether. It shows only what is measured, money in and out of each fund, not who sold to
+whom.
 
 ## Data sources (all free, no API keys)
 
@@ -111,7 +110,7 @@ pipeline/
   analytics.py  fund flows, rotation allocation, selloff detection, positioning, risk score
   demo.py       synthetic data generator
   build.py      CLI that writes docs/data/dashboard.json
-docs/           static site (index.html, app.js, styles.css; ECharts and D3 in docs/vendor)
+docs/           static site (index.html, app.js, styles.css; ECharts in docs/vendor)
 tests/          pytest suite
 ```
 

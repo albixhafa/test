@@ -49,8 +49,9 @@ function fmtUsdBn(x, signed = false) {
   const abs = Math.abs(x);
   // Thresholds sit at the rounding boundaries so 999.7 reads $1.00T, never $1000B.
   const body = abs >= 999.5 ? `$${(abs / 1000).toFixed(2)}T` : abs >= 9.95 ? `$${abs.toFixed(0)}B` : `$${abs.toFixed(1)}B`;
-  if (x < 0) return MINUS + body;
-  return (signed && x > 0 ? "+" : "") + body;
+  // A word joiner keeps the sign on the same line as the number when text wraps.
+  if (x < 0) return `${MINUS}\u2060${body}`;
+  return (signed && x > 0 ? "+\u2060" : "") + body;
 }
 
 // Axis ticks: no trailing zeros ($1.5T, $500B, $0).
@@ -152,7 +153,7 @@ function chart(id) {
 }
 
 function csvCell(v) {
-  const s = String(v ?? "").replace(/\u2212/g, "-");
+  const s = String(v ?? "").replace(/\u2212/g, "-").replace(/\u2060/g, "");
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -177,7 +178,7 @@ function csvButton(title, headers, rows) {
 function table(container, headers, rows) {
   // Every table can be downloaded as CSV, named after its card.
   const card = container.closest("[data-card]");
-  const title = (card && card.querySelector("h3") ? card.querySelector("h3").textContent : "table").trim();
+  const title = (card && (card.dataset.title || (card.querySelector("h3") && card.querySelector("h3").textContent)) || "table").trim();
   const dl = csvButton(title, headers, rows);
   const tbl = document.createElement("table");
   const thead = tbl.createTHead().insertRow();
@@ -610,55 +611,26 @@ function median(xs) {
   return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 }
 
-// ---------- liquidity wheel ----------
+// ---------- tooltips ----------
 
-
-function showTip(title, rows, x, y) {
-  const tip = $("#tip");
-  tip.replaceChildren();
-  const head = document.createElement("div");
-  head.className = "tip-title";
-  head.textContent = title;
-  tip.appendChild(head);
-  rows.forEach(([label, value]) => {
-    const r = document.createElement("div");
-    r.className = "tip-row";
-    const l = document.createElement("span");
-    l.textContent = label;
-    const v = document.createElement("strong");
-    v.textContent = value;
-    r.append(l, v);
-    tip.appendChild(r);
-  });
-  tip.hidden = false;
-  const box = tip.getBoundingClientRect();
-  const left = Math.min(x + 14, window.innerWidth - box.width - 8);
-  const top = y + 14 + box.height > window.innerHeight ? y - box.height - 14 : y + 14;
-  tip.style.left = `${Math.max(8, left)}px`;
-  tip.style.top = `${Math.max(8, top)}px`;
-}
 
 function hideTip() {
   $("#tip").hidden = true;
 }
 
-// "the sidelines" reads naturally in a sentence; class names stay as they are.
-function className(g) {
-  return g === SIDELINES ? "the sidelines" : g;
+// What the class bars say in one line: the biggest inflow and outflow, both measured.
+function classHeadline(view) {
+  const ranked = Object.entries(view.wheel.net).filter(([g]) => g !== SIDELINES).sort((x, z) => z[1] - x[1]);
+  const top = ranked[0];
+  const bottom = ranked[ranked.length - 1];
+  const parts = [];
+  if (top && top[1] > 0.05) parts.push(`${top[0]} took in the most (${fmtUsdBn(top[1], true)})`);
+  if (bottom && bottom[1] < -0.05) parts.push(`${parts.length ? bottom[0].toLowerCase() : bottom[0]} lost the most (${fmtUsdBn(bottom[1], true)})`);
+  if (!parts.length) return `Little money moved in or out ${view.span}`;
+  return `${capitalise(view.span)}, ${parts.join(" and ")}`;
 }
 
-function wheelHeadline(view) {
-  const wheel = view.wheel;
-  const entries = Object.entries(wheel.net).sort((a, b) => a[1] - b[1]);
-  const [source, out] = entries[0];
-  if (!wheel.links.length || out >= 0) return `Little money changed hands between classes ${view.span}`;
-  const dests = wheel.links.filter((l) => l.source === source).sort((a, b) => b.value - a.value).slice(0, 2);
-  const where = dests.map((l) => `${className(l.target)} (${fmtUsdBn(l.value)})`).join(" and ");
-  if (source === SIDELINES) return `${fmtUsdBn(-out)} of new money came in ${view.span}, mostly into ${where}`;
-  return `${fmtUsdBn(-out)} left ${source} ${view.span}, mostly into ${where}`;
-}
-
-// ---------- wheel views: the current window, a past week or month, or a past selloff ----------
+// ---------- views: the selected range, a past week or month, or a past selloff ----------
 
 state.replay = null;
 
@@ -761,10 +733,9 @@ function currentView() {
 function replay(view, scroll = true) {
   state.replay = view;
   syncReplayControls();
-  if (state.tabs.flows !== "wheel") showTab("flows", "wheel", { render: false, hash: false });
+  if (state.tabs.flows !== "classes") showTab("flows", "classes", { render: false, hash: false });
   writeHash();
-  safely("liquidity wheel", renderWheel, theme());
-  runFlow();
+  safely("classes", renderClasses, theme());
   if (scroll) $("#flows").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -772,7 +743,7 @@ function exitReplay() {
   state.replay = null;
   syncReplayControls();
   writeHash();
-  safely("liquidity wheel", renderWheel, theme());
+  safely("classes", renderClasses, theme());
 }
 
 function syncReplayControls() {
@@ -824,314 +795,201 @@ function viewFromKey(key) {
   return i >= 0 ? historyView(kind, i) : null;
 }
 
-// Money flowing through the wheel: dots travel along each ribbon from source to target.
-// Respects reduced motion (starts paused), can be paused, and only runs while on screen.
+// ---------- classes: money in and out of each class, opening into its funds ----------
+
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-state.flowPaused = reducedMotion.matches;
-state.wheelVisible = true;
-let flowFrame = null;
-let flowParticles = [];
-let flowClock = 0;
 
-function stopFlow() {
-  if (flowFrame) cancelAnimationFrame(flowFrame);
-  flowFrame = null;
+state.openClasses = new Set();
+
+// A bar that grows left (money out) or right (money in) from a centre line.
+function divergingBar(value, max, color) {
+  const bar = document.createElement("span");
+  bar.className = "dbar";
+  const fill = document.createElement("span");
+  fill.className = "fill";
+  const width = max > 0 ? (Math.min(Math.abs(value), max) / max) * 50 : 0;
+  fill.style.background = color;
+  fill.style.left = value >= 0 ? "50%" : `${50 - width}%`;
+  fill.dataset.width = `${width}%`;
+  fill.style.width = reducedMotion.matches ? `${width}%` : "0%";
+  bar.appendChild(fill);
+  return bar;
 }
 
-function runFlow() {
-  stopFlow();
-  const layer = document.querySelector("#chart-wheel .flows");
-  if (layer) layer.style.display = state.flowPaused ? "none" : "";
-  if (state.flowPaused || !state.wheelVisible || !flowParticles.length) return;
-  const start = performance.now() - flowClock;
-  const tick = (now) => {
-    flowClock = now - start;
-    const s = flowClock / 1000;
-    for (const p of flowParticles) {
-      // Quadratic Bezier through the centre, the same curve the ribbons follow.
-      const u = (s / p.duration + p.phase) % 1;
-      const a = (1 - u) * (1 - u);
-      const b = u * u;
-      p.node.setAttribute("cx", (a * p.x0 + b * p.x1).toFixed(1));
-      p.node.setAttribute("cy", (a * p.y0 + b * p.y1).toFixed(1));
-      p.node.setAttribute("opacity", Math.min(1, Math.sin(Math.PI * u) * 1.8).toFixed(2));
-    }
-    flowFrame = requestAnimationFrame(tick);
-  };
-  flowFrame = requestAnimationFrame(tick);
-}
-
-function setFlowPaused(paused) {
-  state.flowPaused = paused;
-  const btn = $("#flow-toggle");
-  btn.textContent = paused ? "Play flow" : "Pause flow";
-  btn.setAttribute("aria-pressed", String(paused));
-  runFlow();
-}
-
-function renderWheel(t) {
-  stopFlow();
-  flowParticles = [];
+function renderClasses(t) {
   const view = currentView();
-  const wheel = view.wheel;
-  const groups = state.data.groups;
-  const idx = Object.fromEntries(groups.map((g, i) => [g, i]));
-  const color = (g) => groupColor(t, g);
-  const matrix = groups.map(() => groups.map(() => 0));
-  wheel.links.forEach((l) => { matrix[idx[l.source]][idx[l.target]] += l.value; });
-  const outOf = (i) => d3.sum(matrix[i]);
-  const into = (i) => d3.sum(matrix, (row) => row[i]);
+  const net = view.wheel.net;
+  const nets = view.marketNets || {};
+  const agg = state.replay ? null : aggregate().assets;
+  $("#classes-headline").textContent = classHeadline(view);
+  $("#classes-sub").textContent = `${fmtRange(view.start, view.end)}. Real money into and out of State Street funds and stablecoins.${dollarsNote()}`;
+  $("#classes-sub").appendChild(infoButton("Where the flows come from", "flows"));
+  const fresh = -(net[SIDELINES] || 0);
+  $("#classes-total").textContent = fresh >= 0
+    ? `New money in: ${fmtUsdBn(fresh, true)}`
+    : `Money out of the tracked funds: ${fmtUsdBn(fresh, true)}`;
+  $("#classes-mmf").textContent = mmfNote(view);
 
-  $("#wheel-headline").textContent = wheelHeadline(view);
-  $("#wheel-mmf").textContent = mmfNote(view);
-  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Real money into and out of State Street funds and stablecoins.${dollarsNote()}`;
-  $("#wheel-sub").appendChild(infoButton("Where the flows come from", "flows"));
+  const classes = state.data.groups.filter((g) => g !== SIDELINES).map((g) => ({
+    g,
+    v: net[g] || 0,
+    funds: state.data.assets.filter((a) => a.group === g && nets[a.ticker] != null)
+      .map((a) => ({ tk: a.ticker, v: nets[a.ticker], share: agg && agg[a.ticker] ? agg[a.ticker].intensity : null }))
+      .sort((x, z) => z.v - x.v),
+  })).sort((x, z) => z.v - x.v);
+  const max = Math.max(...classes.map((c) => Math.abs(c.v)), ...classes.flatMap((c) => c.funds.map((f) => Math.abs(f.v)))) || 1;
 
-  // Side list: net per class, biggest inflow first.
-  const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
-  const list = $("#wheel-classes");
+  const list = $("#class-bars");
   list.replaceChildren();
-  Object.entries(wheel.net).sort((a, b) => b[1] - a[1]).forEach(([g, v]) => {
-    const li = document.createElement("li");
-    const key = document.createElement("span");
-    key.className = "key";
-    key.style.background = color(g);
-    const name = document.createElement("span");
-    name.textContent = g;
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    const fill = document.createElement("span");
-    const width = (Math.abs(v) / maxAbs) * 50;
-    fill.style.width = `${width}%`;
-    fill.style.left = v >= 0 ? "50%" : `${50 - width}%`;
-    fill.style.background = v >= 0 ? t.pos : t.neg;
-    bar.appendChild(fill);
+  const rowParts = (row, name, value, color, extra) => {
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = name;
     const num = document.createElement("span");
     num.className = "num";
-    num.textContent = fmtUsdBn(v, true);
-    li.append(key, name, bar, num);
-    list.appendChild(li);
-  });
-
-  table(cardTable("wheel"), ["From", "To", "Amount"],
-    wheel.links.slice().sort((a, b) => b.value - a.value).map((l) => [l.source, l.target, fmtUsdBn(l.value)]));
-
-  const el = document.getElementById("chart-wheel");
-  el.replaceChildren();
-  if (!wheel.links.length) {
-    const p = document.createElement("p");
-    p.className = "muted";
-    p.textContent = "No money moved between classes in this window.";
-    el.appendChild(p);
-    return;
-  }
-
-  // On narrow screens the ring drops its labels; the class list beside it carries them.
-  const width = el.clientWidth || 560;
-  const narrow = width < 560;
-  const outer = narrow ? Math.min(width / 2 - 8, 220) : Math.min(230, (width - 2 * 170) / 2);
-  const inner = outer - (narrow ? 12 : 16);
-  const height = outer * 2 + (narrow ? 16 : 40);
-
-  const chords = d3.chordDirected()
-    .padAngle(6 / inner)
-    .sortSubgroups(d3.descending)
-    .sortChords(d3.descending)(matrix);
-  const arc = d3.arc().innerRadius(inner).outerRadius(outer).cornerRadius(3);
-  const head = Math.min(16, inner * 0.08);
-  const ribbon = d3.ribbonArrow().radius(inner - 3).padAngle(1 / inner).headRadius(head);
-
-  const svg = d3.select(el).append("svg")
-    .attr("viewBox", [-width / 2, -height / 2, width, height])
-    .attr("width", width)
-    .attr("height", height)
-    .attr("role", "img")
-    .attr("aria-label", `${wheelHeadline(view)}. ${fmtUsdBn(wheel.total_bn)} moved between classes in total.`);
-
-  const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
-    .attr("class", "ribbon")
-    .attr("d", ribbon)
-    .attr("fill", (d) => color(groups[d.source.index]))
-    .attr("fill-opacity", 0.62)
-    .attr("stroke", t.surface)
-    .attr("stroke-width", 1)
-    .on("pointermove pointerdown", (ev, d) => {
-      highlightRibbon(d);
-      showTip(`${groups[d.source.index]} → ${groups[d.target.index]}`, [["Flow", fmtUsdBn(d.source.value)]], ev.clientX, ev.clientY);
-    })
-    .on("pointerleave", leave);
-
-  // Flow dots: count proportional to each ribbon's share of the total, spread across its width.
-  const budget = narrow ? 60 : 110;
-  const flows = svg.append("g").attr("class", "flows").attr("pointer-events", "none");
-  const flowGroups = flows.selectAll("g").data(chords).join("g");
-  flowGroups.each(function (c) {
-    const n = Math.max(1, Math.round((budget * c.source.value) / wheel.total_bn));
-    const rs = inner - 3;
-    const rt = inner - 3 - head * 0.6;
-    for (let i = 0; i < n; i++) {
-      const f = 0.15 + 0.7 * Math.random();
-      const sa = c.source.startAngle + f * (c.source.endAngle - c.source.startAngle);
-      const ta = c.target.startAngle + f * (c.target.endAngle - c.target.startAngle);
-      // Neutral ink so the dots read against their own ribbon; the ribbon carries identity.
-      const node = d3.select(this).append("circle")
-        .attr("r", narrow ? 2.6 : 3.2)
-        .attr("fill", t.text)
-        .attr("fill-opacity", 0.85)
-        .attr("stroke", t.surface)
-        .attr("stroke-width", 1)
-        .attr("opacity", 0)
-        .node();
-      flowParticles.push({
-        node,
-        x0: Math.sin(sa) * rs,
-        y0: -Math.cos(sa) * rs,
-        x1: Math.sin(ta) * rt,
-        y1: -Math.cos(ta) * rt,
-        phase: (i + Math.random() * 0.6) / n,
-        duration: 2.6 + Math.random() * 0.8,
+    num.textContent = fmtUsdBn(value, true);
+    if (extra) {
+      const sm = document.createElement("span");
+      sm.className = "share";
+      sm.textContent = extra;
+      num.appendChild(sm);
+    }
+    row.append(nm, divergingBar(value, max, color), num);
+  };
+  classes.forEach((c) => {
+    const li = document.createElement("li");
+    li.className = "cls";
+    const open = state.openClasses.has(c.g) && c.funds.length > 0;
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "cls-row";
+    head.setAttribute("aria-expanded", String(open));
+    const key = document.createElement("span");
+    key.className = "key";
+    key.style.background = groupColor(t, c.g);
+    head.appendChild(key);
+    rowParts(head, c.g, c.v, c.v >= 0 ? t.pos : t.neg);
+    const chev = document.createElement("span");
+    chev.className = "chev";
+    chev.textContent = c.funds.length ? "›" : "";
+    head.appendChild(chev);
+    li.appendChild(head);
+    const sub = document.createElement("ul");
+    sub.className = "fund-rows";
+    sub.hidden = !open;
+    c.funds.forEach((f) => {
+      const fli = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fund-row";
+      btn.setAttribute("aria-label", `${assetName(f.tk)}: ${fmtUsdBn(f.v, true)}. Open its price and flows.`);
+      rowParts(btn, shortName(f.tk), f.v, f.v >= 0 ? t.pos : t.neg, f.share != null ? ` ${fmtPct(f.share, 1)}` : "");
+      btn.addEventListener("click", () => openCloseup(f.tk));
+      fli.appendChild(btn);
+      sub.appendChild(fli);
+    });
+    if (c.funds.length) {
+      head.addEventListener("click", () => {
+        const now = sub.hidden;
+        sub.hidden = !now;
+        head.setAttribute("aria-expanded", String(now));
+        if (now) state.openClasses.add(c.g);
+        else state.openClasses.delete(c.g);
+        growBars(sub);
       });
     }
+    li.appendChild(sub);
+    list.appendChild(li);
   });
+  growBars(list);
 
-  const arcs = svg.append("g").selectAll("g").data(chords.groups.filter((g) => g.value > 0)).join("g")
-    .attr("class", "arc")
-    .attr("tabindex", 0)
-    .attr("aria-label", (d) => `${groups[d.index]}: ${fmtUsdBn(outOf(d.index))} out, ${fmtUsdBn(into(d.index))} in, net ${fmtUsdBn(wheel.net[groups[d.index]], true)}`);
-  arcs.append("path")
-    .attr("d", arc)
-    .attr("fill", (d) => color(groups[d.index]))
-    .attr("stroke", t.surface)
-    .attr("stroke-width", 2);
-
-  const classTip = (d, x, y) => {
-    const g = groups[d.index];
-    const rows = [["Net", fmtUsdBn(wheel.net[g], true)], ["Out", fmtUsdBn(outOf(d.index))], ["In", fmtUsdBn(into(d.index))]];
-    groups.forEach((other, j) => {
-      if (matrix[d.index][j] > 0) rows.push([`→ ${other}`, fmtUsdBn(matrix[d.index][j])]);
-      if (matrix[j][d.index] > 0) rows.push([`← ${other}`, fmtUsdBn(matrix[j][d.index])]);
-    });
-    // How much money the class's tracked funds hold, so sizes can be read in context.
-    if (g !== SIDELINES) {
-      const held = Object.entries(aggregate().assets).filter(([tk, a]) => state.assets[tk] && state.assets[tk].group === g && a.aum_bn != null)
-        .reduce((acc, [, a]) => acc + a.aum_bn, 0);
-      if (held > 0) rows.push(["Fund assets tracked", fmtUsdBn(held)]);
-    }
-    // Which markets inside the class drove it (the sidelines hold no markets).
-    if (view.marketNets && g !== SIDELINES) {
-      const movers = state.data.assets.filter((a) => a.group === g && view.marketNets[a.ticker] != null)
-        .map((a) => [a.ticker, view.marketNets[a.ticker]])
-        .sort((p, q) => Math.abs(q[1]) - Math.abs(p[1])).slice(0, 4);
-      if (movers.length) movers.forEach(([tk, v], k) => rows.push([`${k ? "" : "Driven by: "}${shortName(tk)}`, fmtUsdBn(v, true)]));
-    }
-    showTip(g, rows, x, y);
-  };
-  arcs
-    .on("pointermove pointerdown", (ev, d) => { highlightClass(d.index); classTip(d, ev.clientX, ev.clientY); })
-    .on("pointerleave", leave)
-    .on("focus", function (ev, d) {
-      highlightClass(d.index);
-      const box = this.getBoundingClientRect();
-      classTip(d, box.left + box.width / 2, box.top + box.height / 2);
-    })
-    .on("blur", () => { reset(); hideTip(); });
-
-  function highlightClass(i) {
-    ribbons.attr("fill-opacity", (c) => (c.source.index === i || c.target.index === i ? 0.85 : 0.06));
-    flowGroups.attr("opacity", (c) => (c.source.index === i || c.target.index === i ? 1 : 0.08));
-    arcs.attr("opacity", (g) => (g.index === i || matrix[i][g.index] || matrix[g.index][i] ? 1 : 0.35));
-  }
-  function highlightRibbon(d) {
-    ribbons.attr("fill-opacity", (c) => (c === d ? 0.9 : 0.06));
-    flowGroups.attr("opacity", (c) => (c === d ? 1 : 0.08));
-    arcs.attr("opacity", (g) => (g.index === d.source.index || g.index === d.target.index ? 1 : 0.35));
-  }
-  function reset() {
-    ribbons.attr("fill-opacity", 0.62);
-    flowGroups.attr("opacity", 1);
-    arcs.attr("opacity", 1);
-  }
-  // A tap ends with pointerleave straight away; keep touch details up until the next tap elsewhere.
-  function leave(ev) {
-    if (ev.pointerType === "touch") return;
-    reset();
-    hideTip();
-  }
-  state.wheelReset = () => { reset(); hideTip(); };
-
-  // Class labels outside the ring: name, then net in/out. Labels sit left or right of
-  // the ring and are pushed apart vertically so small neighbouring arcs stay readable.
-  const lineHeight = 36;
-  const labelData = narrow ? [] : chords.groups.filter((g) => g.value > 0).map((d) => {
-    const a = (d.startAngle + d.endAngle) / 2;
-    const side = Math.sin(a) >= 0 ? 1 : -1;
-    // Columns either side of the ring, so labels never sit on top of it.
-    return { d, a, side, x: side * (outer + 28), y: -Math.cos(a) * (outer + 8) - lineHeight / 2 + 6 };
+  const rows = [];
+  classes.forEach((c) => {
+    rows.push([c.g, "All tracked funds", fmtUsdBn(c.v, true), ""]);
+    c.funds.forEach((f) => rows.push([c.g, assetName(f.tk), fmtUsdBn(f.v, true), f.share != null ? fmtPct(f.share, 1) : ""]));
   });
-  [1, -1].forEach((side) => {
-    const items = labelData.filter((l) => l.side === side).sort((p, q) => p.y - q.y);
-    const top = -height / 2 + 12;
-    for (let i = 0; i < items.length; i++) items[i].y = Math.max(items[i].y, i ? items[i - 1].y + lineHeight : top);
-    const bottom = height / 2 - lineHeight + 8;
-    for (let i = items.length - 1; i >= 0; i--) {
-      const limit = i === items.length - 1 ? bottom : items[i + 1].y - lineHeight;
-      items[i].y = Math.min(items[i].y, limit);
-    }
-  });
+  rows.push(["Net new money", "", fmtUsdBn(fresh, true), ""]);
+  table(cardTable("classes"), ["Class", "Fund", "Net flow", "Share of fund"], rows);
+}
 
-  const leaders = svg.append("g").attr("pointer-events", "none");
-  leaders.selectAll("path").data(labelData).join("path")
-    .attr("d", (l) => {
-      const r0 = outer + 3;
-      const x0 = Math.sin(l.a) * r0;
-      const y0 = -Math.cos(l.a) * r0;
-      const yl = l.y + lineHeight / 2 - 10;
-      return `M${x0},${y0}L${l.x - l.side * 4},${yl}`;
-    })
-    .attr("stroke", t.axis)
-    .attr("fill", "none");
+// Bars grow from the centre line when they first appear (instant with reduced motion).
+function growBars(root) {
+  requestAnimationFrame(() => root.querySelectorAll(".dbar .fill").forEach((f) => { f.style.width = f.dataset.width; }));
+}
 
-  const labels = svg.append("g").attr("pointer-events", "none").selectAll("text")
-    .data(labelData).join("text")
-    .attr("transform", (l) => `translate(${l.x},${l.y})`)
-    .attr("text-anchor", (l) => (l.side > 0 ? "start" : "end"));
-  labels.append("tspan")
-    .attr("x", 0)
-    .attr("fill", t.text)
-    .attr("font-size", narrow ? 12 : 13)
-    .attr("font-weight", 600)
-    .text((l) => groups[l.d.index]);
-  labels.append("tspan")
-    .attr("x", 0)
-    .attr("dy", "1.3em")
-    .attr("fill", t.text2)
-    .attr("font-size", narrow ? 11 : 12)
-    .text((l) => {
-      const v = wheel.net[groups[l.d.index]];
-      return `${fmtUsdBn(v, true)} ${v >= 0 ? "in" : "out"}`;
-    });
+// ---------- money map: every fund as a tile, sized by assets, coloured by flow ----------
 
-  // Hub: the total that moved, haloed so it reads on top of the ribbons.
-  runFlow();
+function mixHex(a, b, k) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return `#${x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, "0")).join("")}`;
+}
 
-  const hub = svg.append("g")
-    .attr("pointer-events", "none")
-    .attr("text-anchor", "middle")
-    .attr("stroke", t.surface)
-    .attr("stroke-width", narrow ? 4 : 6)
-    .attr("stroke-linejoin", "round")
-    .attr("paint-order", "stroke");
-  hub.append("text")
-    .attr("y", -4)
-    .attr("fill", t.text)
-    .attr("font-size", narrow ? 24 : 32)
-    .attr("font-weight", 600)
-    .text(fmtUsdBn(wheel.total_bn));
-  hub.append("text")
-    .attr("y", narrow ? 16 : 20)
-    .attr("fill", t.text)
-    .attr("font-size", narrow ? 11 : 13)
-    .text(view.hub);
+function renderMap(t) {
+  const w = aggregate();
+  const funds = Object.entries(w.assets).filter(([, a]) => a.aum_bn > 0 && a.intensity != null);
+  const sizes = funds.map(([, a]) => Math.abs(a.intensity)).sort((x, z) => x - z);
+  // Colour saturates at the 90th percentile of this range's flows, so one outlier can't wash out the rest.
+  const cap = sizes.length ? Math.max(0.002, sizes[Math.floor((sizes.length - 1) * 0.9)]) : 0.01;
+  const shade = (v) => Math.min(1, Math.abs(v) / cap);
+  const colour = (v) => mixHex(t.mid, v >= 0 ? t.pos : t.neg, 0.15 + 0.85 * shade(v));
+  $("#map-sub").textContent = `${fmtRange(w.start, w.end)}. Each tile is a fund, sized by its assets. Blue means money came in, red money went out, as a share of the fund; the stronger the colour, the bigger the flow.`;
+  $("#map-sub").appendChild(infoButton("Flow as a share of each fund", "intensity"));
+  const data = state.data.groups.filter((g) => g !== SIDELINES).map((g) => ({
+    name: g,
+    children: funds.filter(([tk]) => state.assets[tk].group === g).map(([tk, a]) => ({
+      name: shortName(tk), tk, value: a.aum_bn, a,
+      itemStyle: { color: colour(a.intensity) },
+      label: { color: shade(a.intensity) > 0.55 ? "#ffffff" : t.text },
+    })),
+  })).filter((g) => g.children.length);
+  const c = chart("chart-map");
+  c.setOption({
+    tooltip: {
+      ...tooltipBase(t),
+      formatter: (p) => {
+        const a = p.data && p.data.a;
+        if (!a) return `<div>${esc(p.name)}</div>`;
+        return `<div style="margin-bottom:4px">${esc(assetName(p.data.tk))}</div>` +
+          row("Net flow", fmtUsdBn(a.net_flow_bn, true)) +
+          row("Share of fund", fmtPct(a.intensity, 1)) +
+          row("Fund size", fmtUsdBn(a.aum_bn)) +
+          row("Return", fmtPct(a.ret));
+      },
+    },
+    series: [{
+      type: "treemap",
+      data,
+      roam: false,
+      nodeClick: false,
+      breadcrumb: { show: false },
+      top: 0, left: 0, right: 0, bottom: 0,
+      label: { show: true, fontSize: 12, overflow: "truncate", formatter: (p) => (p.data.a ? `${p.name}\n${fmtPct(p.data.a.intensity, 1)}` : p.name) },
+      upperLabel: { show: true, height: 22, color: t.text2, fontSize: 12, fontWeight: 600 },
+      levels: [
+        { itemStyle: { borderColor: t.surface, borderWidth: 0, gapWidth: 3 } },
+        { itemStyle: { borderColor: t.surface, borderWidth: 2, gapWidth: 2, color: t.surface }, upperLabel: { show: true } },
+        { itemStyle: { borderColor: t.surface, borderWidth: 1, gapWidth: 1 } },
+      ],
+    }],
+  }, true);
+  c.off("click");
+  c.on("click", (p) => { if (p.data && p.data.tk) openCloseup(p.data.tk); });
+  // Legend: the colour scale, from money out to money in.
+  const legend = $("#map-legend");
+  legend.replaceChildren();
+  const bar = document.createElement("span");
+  bar.className = "ramp";
+  bar.style.background = `linear-gradient(90deg, ${t.neg}, ${t.mid}, ${t.pos})`;
+  const lo = document.createElement("span");
+  lo.textContent = `Money out (${fmtPct(-cap, 1)} or more)`;
+  const hi = document.createElement("span");
+  hi.textContent = `Money in (${fmtPct(cap, 1)} or more)`;
+  legend.append(lo, bar, hi);
+  table(cardTable("map"), ["Market", "Class", "Share of fund", "Net flow", "Fund size", "Return"],
+    funds.slice().sort((x, z) => z[1].intensity - x[1].intensity).map(([tk, a]) => [
+      assetName(tk), state.assets[tk].group, fmtPct(a.intensity, 1), fmtUsdBn(a.net_flow_bn, true), fmtUsdBn(a.aum_bn), fmtPct(a.ret),
+    ]));
 }
 
 // ---------- flows vs returns ----------
@@ -1316,70 +1174,6 @@ function barCategoryName(ticker) {
   return narrowScreen() ? shortName(ticker) : assetName(ticker);
 }
 
-state.fundsMetric = "usd";
-
-// Money in and out of each fund over the range, in dollars or as a share of the fund.
-function renderIntensity(t) {
-  const usd = state.fundsMetric === "usd";
-  document.querySelectorAll("#funds-metric button").forEach((btn) => btn.setAttribute("aria-checked", String((btn.dataset.metric === "usd") === usd)));
-  const w = aggregate();
-  $("#intensity-sub").textContent = usd
-    ? `${fmtRange(w.start, w.end)}. Net money put into (+) or pulled out of (−) each fund.${dollarsNote()}`
-    : `${fmtRange(w.start, w.end)}. Net money in or out divided by the fund's size, so big and small funds compare fairly.`;
-  if (!usd) $("#intensity-sub").appendChild(infoButton("Flow as a share of each fund", "intensity"));
-  const value = (v) => (usd ? v.net_flow_bn : v.intensity);
-  const rows = Object.entries(w.assets)
-    .filter(([, v]) => v.net_flow_bn != null && value(v) != null)
-    .sort((a, b) => value(a[1]) - value(b[1]));
-  const vals = rows.map(([, v]) => value(v));
-  const fmt = usd ? (v) => fmtUsdBn(v, true) : null;
-  const label = barLabel(t, vals, 1, fmt);
-  const pct = flowPercentiles();
-  const c = chart("chart-intensity");
-  c.setOption({
-    grid: barGrid(),
-    tooltip: {
-      ...tooltipBase(t),
-      trigger: "item",
-      formatter: (p) => {
-        const [tk, v] = rows[p.dataIndex];
-        return `<div style="margin-bottom:4px">${esc(assetName(tk))}</div>` +
-          row("Net flow", fmtUsdBn(v.net_flow_bn, true)) +
-          row("Share of fund", fmtPct(v.intensity)) +
-          row("Fund size at start", fmtUsdBn(v.aum_bn)) +
-          row("Return", fmtPct(v.ret)) +
-          (pct[tk] != null ? row("How unusual", pctText(pct[tk])) : "");
-      },
-    },
-    xAxis: barValueAxis(t, vals, usd ? fmtAxisUsd : null),
-    yAxis: {
-      type: "category",
-      data: rows.map(([k]) => barCategoryName(k)),
-      ...axisStyle(t),
-      axisLabel: { color: t.text2, fontSize: 12 },
-      splitLine: { show: false },
-    },
-    series: [{
-      type: "bar",
-      barWidth: "60%",
-      data: rows.map(([, v]) => ({
-        value: value(v),
-        label: label(value(v)),
-        itemStyle: {
-          color: value(v) >= 0 ? t.pos : t.neg,
-          borderRadius: value(v) >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4],
-        },
-      })),
-    }],
-  }, true);
-  c.off("click");
-  c.on("click", (p) => openCloseup(rows[p.dataIndex][0]));
-  table(cardTable("intensity"), ["Market", "Net flow", "Share of fund", "Fund size", "Return", "How unusual"],
-    rows.slice().reverse().map(([k, v]) => [
-      assetName(k), fmtUsdBn(v.net_flow_bn, true), fmtPct(v.intensity), fmtUsdBn(v.aum_bn), fmtPct(v.ret), pctText(pct[k]),
-    ]));
-}
-
 // ---------- liquidity history ----------
 
 state.history = { kind: "weekly", mode: "flows" };
@@ -1450,7 +1244,7 @@ function renderHistory(t) {
     table(cardTable("history"), ["Period"], []);
     return;
   }
-  const totals = Object.fromEntries(groups.map((g) => [g, d3.sum(h.net[g])]));
+  const totals = Object.fromEntries(groups.map((g) => [g, h.net[g].reduce((acc, v) => acc + (v || 0), 0)]));
   const ranked = Object.entries(totals).filter(([g]) => g !== SIDELINES).sort((a, b) => b[1] - a[1]);
   const [topIn, topOut] = [ranked[0], ranked[ranked.length - 1]];
   const span = fmtRange(h.start[0], h.end[h.end.length - 1]);
@@ -1513,7 +1307,7 @@ function renderHistory(t) {
         const head = `<div style="margin-bottom:4px">${esc(fmtRange(h.start[i], h.end[i]))}</div>`;
         const rows = ps.slice().sort((a, b) => b.data[1] - a.data[1]).map((p) => row(p.seriesName, fmtUsdBn(p.data[1], true), p.color)).join("");
         const foot = mode === "flows" ? row("Total moved", fmtUsdBn(h.total[i])) : "";
-        return head + rows + foot + `<div style="margin-top:6px;opacity:.7">Click to replay in the wheel</div>`;
+        return head + rows + foot + `<div style="margin-top:6px;opacity:.7">Tap to see this period's flows by class</div>`;
       },
     },
     xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
@@ -2421,11 +2215,11 @@ function safely(name, fn, t) {
 
 // ---------- tabs: each card draws only the view that is showing ----------
 
-state.tabs = { flows: "wheel", selloffs: "playbook", backdrop: "cash" };
+state.tabs = { flows: "classes", selloffs: "playbook", backdrop: "cash" };
 const TAB_DEFAULTS = { ...state.tabs };
 const TAB_RENDERERS = {
-  wheel: ["liquidity wheel", () => renderWheel],
-  funds: ["fund flows", () => renderIntensity],
+  classes: ["classes", () => renderClasses],
+  map: ["money map", () => renderMap],
   quadrant: ["flows vs returns", () => renderQuadrant],
   playbook: ["selloff playbook", () => renderPlaybook],
   heatmap: ["selloff heatmap", () => renderHeatmap],
@@ -2451,9 +2245,7 @@ function showTab(group, tab, { render = true, hash = true } = {}) {
     btn.tabIndex = on ? 0 : -1;
   });
   card.querySelectorAll(":scope > .panel").forEach((panel) => { panel.hidden = panel.dataset.panel !== tab; });
-  if (group === "flows" && tab !== "wheel") stopFlow();
   if (render) renderTab(tab);
-  if (group === "flows" && tab === "wheel") runFlow();
   if (hash) writeHash();
 }
 
@@ -2660,10 +2452,6 @@ function wireControls() {
       });
     });
   });
-  document.querySelectorAll("#funds-metric button").forEach((btn) => btn.addEventListener("click", () => {
-    state.fundsMetric = btn.dataset.metric;
-    renderTab("funds");
-  }));
 
   const dlg = $("#closeup-dialog");
   $("#closeup-close").addEventListener("click", () => dlg.close());
@@ -2698,15 +2486,6 @@ function wireControls() {
     applyTheme(mode);
     renderAll();
   });
-  setFlowPaused(state.flowPaused);
-  $("#flow-toggle").addEventListener("click", () => setFlowPaused(!state.flowPaused));
-  reducedMotion.addEventListener("change", (e) => setFlowPaused(e.matches));
-  if ("IntersectionObserver" in window) {
-    new IntersectionObserver(([entry]) => {
-      state.wheelVisible = entry.isIntersecting;
-      runFlow();
-    }).observe(document.getElementById("chart-wheel"));
-  }
 
   $("#replay-select").addEventListener("change", (ev) => {
     const view = viewFromKey(ev.target.value);
@@ -2747,9 +2526,6 @@ function wireControls() {
     links.forEach((_, id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
   }
 
-  document.addEventListener("pointerdown", (ev) => {
-    if (state.wheelReset && !ev.target.closest("#chart-wheel")) state.wheelReset();
-  });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (mode === "auto") renderAll();
   });
@@ -2759,8 +2535,8 @@ function wireControls() {
     clearTimeout(pending);
     pending = setTimeout(() => {
       Object.values(state.charts).forEach((c) => c.resize());
-      // The wheel and the quadrant lay themselves out for the width, so redraw the open one.
-      if (state.data && ["wheel", "quadrant"].includes(state.tabs.flows)) renderTab(state.tabs.flows);
+      // The quadrant and the map lay themselves out for the width, so redraw the open one.
+      if (state.data && ["map", "quadrant"].includes(state.tabs.flows)) renderTab(state.tabs.flows);
     }, 120);
   });
 }
@@ -2783,9 +2559,6 @@ function renderFreshness(data) {
 }
 
 async function main() {
-  if (typeof d3 === "undefined") {
-    showError("The wheel library (vendor/d3-7.9.0.min.js) did not load, so the liquidity wheel can't be drawn. Try reloading the page.");
-  }
   if (typeof echarts === "undefined") {
     showError("The chart library (vendor/echarts-5.5.1.min.js) did not load, so charts can't be drawn. Try reloading the page.");
   }
@@ -2833,7 +2606,7 @@ async function main() {
   renderFreshness(data);
 
   // A replayed period lives in the wheel, so a shared replay link opens that tab.
-  if (state.replay) state.tabs.flows = "wheel";
+  if (state.replay) state.tabs.flows = "classes";
   Object.entries(state.tabs).forEach(([group, tab]) => showTab(group, tab, { render: false, hash: false }));
   renderAll();
   if (state.openCloseupOnLoad) openCloseup(state.market);
