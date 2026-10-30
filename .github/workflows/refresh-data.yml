@@ -47,6 +47,9 @@ jobs:
             git push origin HEAD:${{ github.ref_name }}
           fi
       # Pages only deploys from the default branch; other branches just refresh the data.
+      # Stamp asset URLs with the commit so browsers never mix a new page with cached old code.
+      - if: github.ref_name == github.event.repository.default_branch
+        run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" docs/index.html
       - if: github.ref_name == github.event.repository.default_branch
         uses: actions/configure-pages@v5
       - if: github.ref_name == github.event.repository.default_branch
