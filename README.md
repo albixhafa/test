@@ -17,7 +17,7 @@ Five sections, each one card (most with tabs), so the page stays short:
 |---|---|
 | **Now** | The answer in one sentence ("Money is leaving X and Y and going into A and B"), today's mood, S&P 500 drawdown and VIX, then **In**, **Out**, **Overall** (net new money and money market funds) and **Worth watching** (record-sized flows, crowded futures, nervous credit markets) for the selected range |
 | **Where money is flowing** | Tabs: **Classes** (money in and out of stocks, bonds, cash, gold & commodities and crypto as bars, with net new money on top; tap a class to open its funds; can show any past week, month or selloff), **Map** (every fund as a tile sized by its assets and coloured by its flow as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, **history** by day, week or month, as flows or running totals |
-| **Where the money sits** | Stacked bars of how much money is held in stocks, bonds, cash, gold and crypto each month (or year) since 2017, with **Linear / Log / Share %** views, a tooltip that ranks the classes, and the period in progress striped. Sizes are estimates: Fed Financial Accounts for stocks (carried monthly by the S&P 500) and corporate bonds, Dallas Fed Treasury market value, M2 for cash, World Gold Council tonnes times the gold price, coins in circulation times prices plus stablecoins for crypto |
+| **Where the money sits** | Stacked bars of the market value held in stocks, real estate, bonds, cash, gold and crypto each month (or year) since 2017, with **Linear / Log / Share %** views, a tooltip that ranks the classes, and the period in progress striped. Sizes are estimates: Fed Financial Accounts for stocks (carried monthly by the S&P 500), households' real estate (carried by Case-Shiller) and corporate bonds, Dallas Fed Treasury market value, M2 plus companies' money funds for cash, World Gold Council tonnes times the gold price, coins in circulation times prices plus stablecoins for crypto |
 | **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to see its flows by class) |
 | **Backdrop** | Tabs, each a compact table with sparklines and a chart of the selected row: **Cash** (stablecoins, money market funds and their estimated net flows, retail money funds, reverse repo, TGA, Fed net liquidity), **Rates** (T-bill, 10-year, 2s10s curve, real yield, high-yield spread, financial conditions), **Positioning** (speculators' futures positions in 11 markets as a percentile of three years), **Risk** (risk appetite score and its ingredients, correlations with stocks) |
 
@@ -58,8 +58,8 @@ whom.
 - **Yahoo Finance**: daily prices and volume for 26 ETFs and crypto pairs (Stooq as a fallback for ETFs), and gold futures
 - **OFR** (Office of Financial Research): total US money market fund assets, monthly, from SEC Form N-MFP
 - **CFTC**: weekly Commitments of Traders (Traders in Financial Futures and Disaggregated reports)
-- **FRED**: `NCBEILQ027S` and `BOGZ1LM793164105Q` (US companies' shares), `MVMTD027MNFRBDAL` (Treasuries at
-  market value), `NCBDBIQ027S` (company bonds), `WALCL` (Fed balance sheet), `WTREGEN` (TGA), `RRPONTSYD` (reverse repo),
+- **FRED**: `NCBEILQ027S` and `BOGZ1LM793164105Q` (US companies' shares), `HNOREMQ027S` and `CSUSHPISA`
+  (households' real estate), `MVMTD027MNFRBDAL` (Treasuries at market value), `NCBDBIQ027S` (company bonds), `WALCL` (Fed balance sheet), `WTREGEN` (TGA), `RRPONTSYD` (reverse repo),
   `RMFSL` (retail money funds), `M2SL`, `CPIAUCSL` (CPI), `DTB3`, `DGS10`, `T10Y2Y`, `DFII10`,
   `BAMLH0A0HYM2` (high-yield spread; FRED keeps three years of it), `NFCI`
 - **DefiLlama**: total USD stablecoin supply

@@ -14,7 +14,7 @@ import pandas as pd
 
 from . import analytics as an
 from .config import (ASSETS, BALANCE_GROUP, BENCHMARK, BTC_SUPPLY, ETH_SUPPLY, FLOW_WINDOWS, FRED_SERIES,
-                     GOLD_TONNES, GROUPS, HISTORY_START, POOL_SERIES, POSITIONING, RATES_SERIES, REBOUND_DAYS,
+                     GOLD_TONNES, GROUPS, HISTORY_START, POOL_ORDER, POOL_SERIES, POSITIONING, RATES_SERIES, REBOUND_DAYS,
                      SELLOFF_THRESHOLD, VIX)
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "docs" / "data" / "dashboard.json"
@@ -120,9 +120,11 @@ def build_pools(close, macro, stable, gold_px, as_of):
     """Money held in each asset class at each month end since 2017, in USD billions.
 
     Estimates, documented on the page: stocks from the Financial Accounts carried by the
-    S&P 500; bonds as Treasuries at market value plus companies' bonds; cash as M2; gold
-    as tonnes ever mined times the price; crypto as coins in circulation times prices plus
-    stablecoins. A class with a missing source is left out.
+    S&P 500; real estate owned by households (corporate property is already inside share
+    prices) carried by Case-Shiller; bonds as Treasuries
+    at market value plus companies' bonds; cash as M2 plus companies' money market funds;
+    gold as tonnes ever mined times the price; crypto as coins in circulation times prices
+    plus stablecoins. A class with a missing source is left out.
     """
     days = close.index[close.index >= "2017-01-01"]
     dates = pd.DatetimeIndex(days.to_series().groupby(days.to_period("M")).max().values)
@@ -134,13 +136,21 @@ def build_pools(close, macro, stable, gold_px, as_of):
         if have("BOGZ1LM793164105Q"):
             eq = eq.add(_month_start_to_end(macro["BOGZ1LM793164105Q"] * POOL_SERIES["BOGZ1LM793164105Q"]), fill_value=0)
         pools["Stocks"] = an.anchored_monthly(eq, close["SPY"], dates)
+    if have("HNOREMQ027S", "CSUSHPISA"):
+        homes = _month_start_to_end(macro["HNOREMQ027S"] * POOL_SERIES["HNOREMQ027S"])
+        pools["Real estate"] = an.anchored_monthly(homes, _month_start_to_end(macro["CSUSHPISA"]), dates)
     if have("MVMTD027MNFRBDAL"):
         bonds = asof(_month_start_to_end(macro["MVMTD027MNFRBDAL"] * POOL_SERIES["MVMTD027MNFRBDAL"]))
         if have("NCBDBIQ027S"):
             bonds = bonds + asof(_month_start_to_end(macro["NCBDBIQ027S"] * POOL_SERIES["NCBDBIQ027S"])).fillna(0)
         pools["Bonds"] = bonds
     if have("M2SL"):
-        pools["Cash"] = asof(_month_start_to_end(macro["M2SL"]))
+        cash = asof(_month_start_to_end(macro["M2SL"]))
+        # M2 already holds households' money funds; add companies' (all funds minus retail).
+        if have("MMF_TOTAL", "RMFSL"):
+            companies = asof(macro["MMF_TOTAL"]) - asof(_month_start_to_end(macro["RMFSL"]))
+            cash = cash + companies.clip(lower=0).fillna(0)
+        pools["Cash"] = cash
     gold = gold_px if gold_px is not None and not gold_px.empty else (close["GLD"] * 10.75 if "GLD" in close else None)
     if gold is not None:
         pools["Gold & commodities"] = an.knot_path(GOLD_TONNES, dates) * 32150.7466 * asof(gold) / 1e9
@@ -150,7 +160,7 @@ def build_pools(close, macro, stable, gold_px, as_of):
         pools["Crypto"] = coins / 1e9 + (asof(stable).fillna(0) if stable is not None else 0)
     if len(pools) < 3:
         return None
-    order = [g for g in GROUPS if g in pools]
+    order = [g for g in POOL_ORDER if g in pools]
     last = pd.Timestamp(as_of)
     return {
         "dates": [d.strftime("%Y-%m-%d") for d in dates],

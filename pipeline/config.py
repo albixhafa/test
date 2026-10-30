@@ -117,7 +117,11 @@ POOL_SERIES = {
     "BOGZ1LM793164105Q": 1e-3, # financial companies' shares, market value (quarterly, $m)
     "MVMTD027MNFRBDAL": 1.0,   # marketable Treasury debt at market value (Dallas Fed, monthly, $bn)
     "NCBDBIQ027S": 1e-3,       # nonfinancial companies' bonds and notes (quarterly, $m)
+    "HNOREMQ027S": 1e-3,       # households' real estate at market value (quarterly, $m)
+    "CSUSHPISA": None,         # Case-Shiller national home price index (monthly), carries real estate
 }
+# Display order of the holdings classes, bottom of the stack first.
+POOL_ORDER = ["Stocks", "Real estate", "Bonds", "Cash", "Gold & commodities", "Crypto"]
 # Gold ever mined, in tonnes at year end (World Gold Council estimates), and the coins in
 # circulation for bitcoin (halving schedule) and ether; values in between are interpolated.
 GOLD_TONNES = [("2016-12-31", 187200), ("2017-12-31", 190040), ("2018-12-31", 193472), ("2019-12-31", 197576),

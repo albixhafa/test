@@ -444,7 +444,7 @@ const INFO = {
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
   flows: "Real money, not estimates. Every State Street SPDR fund reports its shares outstanding daily; new shares times the share price is money put in, cancelled shares money taken out. Crypto's flow is the change in total stablecoin supply. SPDR funds are a large, consistent slice of US ETFs, not the whole market, so read sizes as a sample and directions as the signal. Markets without an SPDR fund (Nasdaq 100, small caps, bitcoin, the dollar) are tracked for price only.",
-  pools: "Stocks: US corporate equities (Federal Reserve Financial Accounts, quarterly), carried month to month by the S&P 500. Bonds: marketable US Treasuries at market value (Dallas Fed) plus corporate bonds. Cash: the M2 money supply. Gold: all gold ever mined (World Gold Council estimate) times the gold price. Crypto: bitcoin and ether in circulation times their prices, plus stablecoins. US figures for stocks, bonds and cash; global for gold and crypto.",
+  pools: "Stocks: US companies' shares, listed and private (Federal Reserve Financial Accounts, quarterly), carried month to month by the S&P 500. Real estate: homes and land owned by households (Financial Accounts, quarterly), carried by the Case-Shiller home price index; property owned by companies is already inside their shares. Bonds: marketable US Treasuries at market value (Dallas Fed) plus company bonds. Cash: the M2 money supply plus companies' money market funds. Gold: all gold ever mined (World Gold Council estimate) times the gold price. Crypto: bitcoin and ether in circulation times their prices, plus stablecoins. US figures for stocks, real estate, bonds and cash; global for gold and crypto. Values move with prices: when markets fall, the value falls without any money leaving.",
   intensity: "Net flow divided by the fund's size at the start of the range. It puts a $50B fund and an $800B fund on the same scale: +5% means the fund grew 5% from new money alone, before any price change.",
 };
 
@@ -923,6 +923,8 @@ function growBars(root) {
 state.pools = { grain: "month", scale: "linear" };
 const POOL_NAMES = { "Gold & commodities": "Gold" };
 const poolName = (g) => POOL_NAMES[g] || g;
+// Real estate is not a flow class, so it takes the one palette slot the classes leave free.
+const poolColor = (t, g) => (g === "Real estate" ? t.groups[6] : groupColor(t, g));
 // Diagonal stripes for the month or year still in progress.
 const STRIPES = { symbol: "rect", symbolSize: 1, dashArrayX: [1, 0], dashArrayY: [3, 3], rotation: Math.PI / 4, color: "rgba(0, 0, 0, 0.32)" };
 
@@ -992,7 +994,7 @@ function renderPools(t) {
         const i = shown[j];
         const rows = groups.map((g) => [g, val(g, i) || 0]).sort((x, z) => z[1] - x[1]);
         return `<div style="margin-bottom:6px">${esc(label(i))}${partial(i) ? " · in progress" : ""}</div>` +
-          rows.map(([g, v]) => row(poolName(g), `${fmtPool(v)} · ${Math.round((v / totals[j]) * 100)}%`, groupColor(t, g))).join("") +
+          rows.map(([g, v]) => row(poolName(g), `${fmtPool(v)} · ${Math.round((v / totals[j]) * 100)}%`, poolColor(t, g))).join("") +
           `<div style="border-top:1px solid ${t.grid};margin-top:6px;padding-top:6px">${row("Total", fmtPool(totals[j]))}</div>`;
       },
     },
@@ -1019,18 +1021,18 @@ function renderPools(t) {
       type: "bar",
       stack: "all",
       barCategoryGap: shown.length > 40 ? "10%" : "22%",
-      itemStyle: { color: groupColor(t, g) },
+      itemStyle: { color: poolColor(t, g) },
       data: shown.map((i, j) => {
         const v = val(g, i);
         const y = v == null ? null : scale === "share" ? (v / totals[j]) * 100 : scale === "log" ? v / 1000 : v;
-        return partial(i) ? { value: y, itemStyle: { color: groupColor(t, g), decal: STRIPES } } : y;
+        return partial(i) ? { value: y, itemStyle: { color: poolColor(t, g), decal: STRIPES } } : y;
       }),
     })),
   }, true);
   $("#pools-legend").replaceChildren(...groups.map((g) => {
     const sp = document.createElement("span");
     const key = document.createElement("i");
-    key.style.background = groupColor(t, g);
+    key.style.background = poolColor(t, g);
     sp.append(key, document.createTextNode(poolName(g)));
     return sp;
   }));

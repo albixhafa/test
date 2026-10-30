@@ -275,7 +275,7 @@ def test_demo_build_produces_complete_dashboard():
     assert len(data["positioning"]) == 11 and set(data["rates"]) >= {"DTB3", "DGS10", "NFCI"}
     assert data["mmf_flows"] and data["cash"]["mmf_total"] and data["kpis"]["mmf_total_bn"]
     pools = data["pools"]
-    assert list(pools["values"]) == ["Stocks", "Bonds", "Cash", "Gold & commodities", "Crypto"]
+    assert list(pools["values"]) == ["Stocks", "Real estate", "Bonds", "Cash", "Gold & commodities", "Crypto"]
     assert len(pools["dates"]) == len(pools["values"]["Stocks"]) and pools["dates"][0].startswith("2017-01")
     assert all(v is None or v > 0 for vals in pools["values"].values() for v in vals)
     flows = {a["ticker"] for a in data["assets"] if a["flows"]}
