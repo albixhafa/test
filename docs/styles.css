@@ -194,6 +194,7 @@ select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-w
   margin: 4px 0 8px; padding: 8px 12px; border-radius: 10px;
   background: var(--banner); border: 1px solid var(--banner-border); font-size: 14px;
 }
+.section > .card + .card { margin-top: 16px; }
 .card .chart#chart-history { height: 380px; }
 
 .card .chart#chart-closeup { height: 420px; }

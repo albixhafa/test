@@ -133,10 +133,6 @@
             <p class="muted small" id="history-sub"></p>
           </div>
           <div class="card-actions">
-            <div class="tabs" role="radiogroup" aria-label="History view" id="history-mode">
-              <button type="button" role="radio" data-mode="flows">Flows</button>
-              <button type="button" role="radio" data-mode="cumulative">Running total</button>
-            </div>
             <div class="segmented compact" role="radiogroup" aria-label="History period" id="history-kind">
               <button type="button" role="radio" data-kind="daily" title="Daily">D</button>
               <button type="button" role="radio" data-kind="weekly" title="Weekly">W</button>
@@ -340,8 +336,8 @@
             index (CPI). CPI is monthly and published with a lag of about a month, so short recent ranges barely
             change. Correlations, rates and the risk score are unaffected.</p>
           <h3>History and replay</h3>
-          <p>The history chart shows the same class flows day by day, week by week for three years, or month by
-            month since 2017. Tap any bar, pick a past selloff from the menu above the class bars, or tap a row in
+          <p>The history chart adds up the same class flows over the range, as a running total day by day, week by
+            week for three years, or month by month since 2017. Tap any point, pick a past selloff from the menu above the class bars, or tap a row in
             the selloff heatmap to show that period in the Classes view.</p>
           <h3>Selloffs</h3>
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,

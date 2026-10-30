@@ -1200,7 +1200,7 @@ function barCategoryName(ticker) {
 
 // ---------- liquidity history ----------
 
-state.history = { kind: "weekly", mode: "flows" };
+state.history = { kind: "weekly" };
 
 // Which grains the selected range supports, and a sensible default for it.
 function grainAvailable(kind) {
@@ -1250,7 +1250,7 @@ function capitalise(text) {
 
 function renderHistory(t) {
   if (!grainAvailable(state.history.kind)) state.history.kind = autoGrain();
-  const { kind, mode } = state.history;
+  const { kind } = state.history;
   const h = historyData(kind);
   const groups = state.data.groups;
   const color = (g) => groupColor(t, g);
@@ -1258,7 +1258,6 @@ function renderHistory(t) {
     b.setAttribute("aria-checked", String(b.dataset.kind === kind));
     b.disabled = !grainAvailable(b.dataset.kind);
   });
-  document.querySelectorAll("#history-mode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
 
   const c = chart("chart-history");
   if (!h.end.length) {
@@ -1268,82 +1267,54 @@ function renderHistory(t) {
     table(cardTable("history"), ["Period"], []);
     return;
   }
-  const totals = Object.fromEntries(groups.map((g) => [g, h.net[g].reduce((acc, v) => acc + (v || 0), 0)]));
-  const ranked = Object.entries(totals).filter(([g]) => g !== SIDELINES).sort((a, b) => b[1] - a[1]);
-  const [topIn, topOut] = [ranked[0], ranked[ranked.length - 1]];
-  const span = fmtRange(h.start[0], h.end[h.end.length - 1]);
-  const lead = state.range.preset === "ALL" ? `Since ${fmtMonth(h.start[0])}` : capitalise(rangeSpan());
-  // The sidelines' total is the net new money: negative means money came in from outside.
-  const fresh = -(totals[SIDELINES] || 0);
-  const net = Math.abs(fresh) < 0.05 ? "" : fresh > 0 ? `; ${fmtUsdBn(fresh)} of new money came in overall` : `; ${fmtUsdBn(-fresh)} left the tracked funds overall`;
-  $("#history-headline").textContent = topIn[1] > 0 && topOut[1] < 0
-    ? `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})${net}`
-    : `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)})${net}`;
   const unit = { daily: "day", weekly: "week", monthly: "month" }[kind];
-  $("#history-sub").textContent = mode === "flows"
-    ? `Net flow per ${unit}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.${dollarsNote()}`
-    : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
+  $("#history-headline").textContent = "Running total by class";
+  $("#history-sub").textContent = `How much each class has taken in (above zero) or lost (below zero) since ${fmtDate(h.start[0], true)}, ${unit} by ${unit}. Shaded bands are S&P 500 selloffs.${dollarsNote()}`;
 
-  const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v)); };
-  // The sidelines would only mirror every other bar, so they show as one line instead:
-  // net new money into the tracked funds (their balance with the sign flipped).
+  const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v || 0)); };
+  // The sidelines would only mirror every other line, so they show as net new money
+  // into the tracked funds instead (their balance with the sign flipped).
   const NEW_MONEY = "Net new money";
-  const series = groups.map((g, gi) => {
-    if (g === SIDELINES) {
-      const fresh = h.net[g].map((v) => -v);
-      const values = mode === "flows" ? fresh : running(fresh);
-      return {
-        name: NEW_MONEY, type: "line", z: 5, showSymbol: mode === "flows" && h.end.length <= 60, symbolSize: 4,
-        data: h.end.map((d, i) => [d, Math.round(values[i] * 100) / 100]),
-        lineStyle: { width: 1.5, color: t.text2, type: mode === "flows" ? "dashed" : "solid" },
-        itemStyle: { color: t.text2 },
-        emphasis: { focus: "series" },
-        endLabel: mode === "flows" ? undefined : { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 },
-        labelLayout: { moveOverlap: "shiftY" },
-      };
-    }
-    const values = mode === "flows" ? h.net[g] : running(h.net[g]);
-    const base = {
-      name: g,
-      data: h.end.map((d, i) => [d, Math.round(values[i] * 100) / 100]),
-      itemStyle: { color: color(g) },
-      emphasis: { focus: "series" },
-      markArea: gi === 0 ? selloffBands(t) : undefined,
-    };
-    return mode === "flows"
-      ? { ...base, type: "bar", stack: "net", barMaxWidth: 14, itemStyle: { color: color(g), borderColor: t.surface, borderWidth: 0.5 } }
-      : { ...base, type: "line", showSymbol: false, lineStyle: { width: 2, color: color(g) },
-          endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 }, labelLayout: { moveOverlap: "shiftY" } };
-  });
+  const totals = Object.fromEntries(groups.map((g) => [g, running(g === SIDELINES ? h.net[g].map((v) => -v) : h.net[g])]));
+  const showSymbol = h.end.length <= 12;
+  const series = groups.map((g, gi) => ({
+    name: g === SIDELINES ? NEW_MONEY : g,
+    type: "line", showSymbol, symbolSize: 5,
+    data: h.end.map((d, i) => [d, Math.round(totals[g][i] * 100) / 100]),
+    lineStyle: { width: g === SIDELINES ? 1.5 : 2, color: g === SIDELINES ? t.text2 : color(g) },
+    itemStyle: { color: g === SIDELINES ? t.text2 : color(g) },
+    z: g === SIDELINES ? 5 : 2,
+    emphasis: { focus: "series" },
+    markArea: gi === 0 ? selloffBands(t) : undefined,
+    endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 },
+    labelLayout: { moveOverlap: "shiftY" },
+  }));
+  const periodText = (i) => (h.start[i] === h.end[i] ? fmtDate(h.end[i], true) : fmtRange(h.start[i], h.end[i]));
 
   c.setOption({
-    grid: { left: 8, right: mode === "cumulative" && !narrowScreen() ? 130 : 16, top: narrowScreen() ? 64 : 40, bottom: 24, containLabel: true },
+    grid: { left: 8, right: narrowScreen() ? 16 : 130, top: narrowScreen() ? 64 : 40, bottom: 24, containLabel: true },
     legend: {
       top: 0, left: 0, textStyle: { color: t.text2, fontSize: 12 }, inactiveColor: t.grid,
-      icon: mode === "flows" ? "roundRect" : "path://M0,0 L12,0 L12,2 L0,2 Z", itemWidth: 12, itemHeight: mode === "flows" ? 10 : 2,
+      icon: "path://M0,0 L12,0 L12,2 L0,2 Z", itemWidth: 12, itemHeight: 2,
     },
     tooltip: {
       ...tooltipBase(t),
       trigger: "axis",
-      axisPointer: { type: mode === "flows" ? "shadow" : "line", lineStyle: { color: t.axis } },
+      axisPointer: { type: "line", lineStyle: { color: t.axis } },
       formatter: (ps) => {
         const i = ps[0].dataIndex;
-        const head = `<div style="margin-bottom:4px">${esc(fmtRange(h.start[i], h.end[i]))}</div>`;
+        const head = `<div style="margin-bottom:4px">${esc(fmtRange(h.start[0], h.end[i]))}</div>`;
         const rows = ps.slice().sort((a, b) => b.data[1] - a.data[1]).map((p) => row(p.seriesName, fmtUsdBn(p.data[1], true), p.color)).join("");
-        const foot = mode === "flows" ? row("Total moved", fmtUsdBn(h.total[i])) : "";
-        return head + rows + foot + `<div style="margin-top:6px;opacity:.7">Tap to see this period's flows by class</div>`;
+        return head + rows + `<div style="margin-top:6px;opacity:.7">Tap to see ${esc(periodText(i))} by class</div>`;
       },
     },
     xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
     yAxis: { type: "value", ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
     series,
   }, true);
-  c.off("click");
-  c.on("click", (p) => replay(historyView(kind, h.idx[p.dataIndex])));
-  // Clicking anywhere in a column (not only on a bar segment) replays that period too.
+  // Clicking anywhere in the plot (on a line, a selloff band or empty space) replays the nearest period.
   c.getZr().off("click");
   c.getZr().on("click", (ev) => {
-    if (ev.target) return;
     const pt = [ev.offsetX, ev.offsetY];
     if (!c.containPixel("grid", pt)) return;
     const x = c.convertFromPixel({ seriesIndex: 0 }, pt)[0];
@@ -1354,9 +1325,8 @@ function renderHistory(t) {
   });
 
   const classes = groups.filter((g) => g !== SIDELINES);
-  table(cardTable("history"), ["Period", ...classes, "Net new money", "Total moved"],
-    h.end.map((d, i) => [fmtRange(h.start[i], d), ...classes.map((g) => fmtUsdBn(h.net[g][i], true)),
-      fmtUsdBn(-(h.net[SIDELINES] || [])[i] || 0, true), fmtUsdBn(h.total[i])]).reverse());
+  table(cardTable("history"), ["Through", ...classes, NEW_MONEY],
+    h.end.map((d, i) => [fmtDate(d, true), ...[...classes, SIDELINES].map((g) => fmtUsdBn(totals[g][i], true))]).reverse());
 }
 
 // ---------- market close-up ----------
@@ -2346,7 +2316,7 @@ function applyCustomRange() {
 }
 
 // Shareable links: the view lives in the URL hash
-// (#range=3M&r=ep:12&m=GLD&hk=monthly&hm=cumulative, or from=…&to=… for a custom range).
+// (#range=3M&r=ep:12&m=GLD&hk=monthly, or from=…&to=… for a custom range).
 function writeHash() {
   if (!state.data) return;
   const params = new URLSearchParams();
@@ -2365,7 +2335,6 @@ function writeHash() {
   if (state.pools.grain !== "month") params.set("pg", state.pools.grain);
   if (state.pools.scale !== "linear") params.set("ps", state.pools.scale);
   if (state.history.kind !== autoGrain()) params.set("hk", state.history.kind);
-  if (state.history.mode !== "flows") params.set("hm", state.history.mode);
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -2383,7 +2352,6 @@ function readHash() {
   }
   state.history.kind = autoGrain();
   if (["daily", "weekly", "monthly"].includes(params.get("hk")) && grainAvailable(params.get("hk"))) state.history.kind = params.get("hk");
-  if (["flows", "cumulative"].includes(params.get("hm"))) state.history.mode = params.get("hm");
   if (params.get("m") && state.assets[params.get("m")]) {
     state.market = params.get("m");
     state.openCloseupOnLoad = true;
@@ -2535,11 +2503,6 @@ function wireControls() {
   $("#share").addEventListener("click", share);
   document.querySelectorAll("#history-kind button").forEach((b) => b.addEventListener("click", () => {
     state.history.kind = b.dataset.kind;
-    writeHash();
-    safely("liquidity history", renderHistory, theme());
-  }));
-  document.querySelectorAll("#history-mode button").forEach((b) => b.addEventListener("click", () => {
-    state.history.mode = b.dataset.mode;
     writeHash();
     safely("liquidity history", renderHistory, theme());
   }));
