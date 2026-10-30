@@ -1,6 +1,6 @@
 "use strict";
 
-const state = { data: null, window: "20", charts: {}, assets: {}, groupIndex: {} };
+const state = { data: null, charts: {}, assets: {}, groupIndex: {} };
 const CASH_NODE = "Cash & sidelines";
 // One market per class for the performance chart.
 const REPRESENTATIVES = ["SPY", "TLT", "BIL", "GLD", "BTC-USD", "UUP"];
@@ -169,6 +169,177 @@ function selloffBands(t) {
   };
 }
 
+// ---------- date range: one selection drives every chart and table ----------
+
+const RANGE_PRESETS = [
+  ["1W", "1W", "over the past week", "in the past week"],
+  ["1M", "1M", "over the past month", "in the past month"],
+  ["3M", "3M", "over the past 3 months", "in the past 3 months"],
+  ["6M", "6M", "over the past 6 months", "in the past 6 months"],
+  ["YTD", "YTD", "so far this year", "so far this year"],
+  ["1Y", "1Y", "over the past year", "in the past year"],
+  ["3Y", "3Y", "over the past 3 years", "in the past 3 years"],
+  ["5Y", "5Y", "over the past 5 years", "in the past 5 years"],
+  ["ALL", "All", "since 2016", "since 2016"],
+];
+const RANGE_INFO = Object.fromEntries(RANGE_PRESETS.map(([k, label, span, hub]) => [k, { label, span, hub }]));
+
+state.range = { preset: "1M", start: null, end: null };
+
+function addMonths(iso, n) {
+  const d = parseDay(iso);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + n);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d.toISOString().slice(0, 10);
+}
+
+// Bounds of the selected range as ISO dates. Presets count back from the latest data;
+// their start is exclusive (1W = the five trading days after a date a week ago).
+function rangeBounds() {
+  const end = state.data.meta.as_of;
+  const p = state.range.preset;
+  const months = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "3Y": 36, "5Y": 60 };
+  if (p === "custom") return { start: state.range.start, end: state.range.end || end, inclusive: true };
+  if (p === "1W") return { start: shiftDate(end, -7), end };
+  if (p === "YTD") return { start: `${end.slice(0, 4)}-01-01`, end, inclusive: true };
+  if (p === "ALL") return { start: "2000-01-01", end, inclusive: true };
+  return { start: addMonths(end, -months[p]), end };
+}
+
+function inRange(iso, b = rangeBounds()) {
+  return (b.inclusive ? iso >= b.start : iso > b.start) && iso <= b.end;
+}
+
+// A period [a, z] overlaps the range (used for months, weeks and selloffs).
+function overlapsRange(a, z, b = rangeBounds()) {
+  return z >= b.start && a <= b.end;
+}
+
+function rangeSpan() {
+  if (state.range.preset !== "custom") return RANGE_INFO[state.range.preset].span;
+  const b = rangeBounds();
+  return `between ${fmtDate(b.start)} and ${fmtDate(b.end)}`;
+}
+
+function rangeHub() {
+  if (state.range.preset !== "custom") return `moved ${RANGE_INFO[state.range.preset].hub}`;
+  return "moved in the selected range";
+}
+
+function rangeShort() {
+  if (state.range.preset !== "custom") return RANGE_INFO[state.range.preset].label;
+  const b = rangeBounds();
+  return fmtRange(b.start, b.end);
+}
+
+// Compact wording for tiles: "over the past month", or "over Feb 1 – Apr 30, 2020".
+function rangeTileSpan() {
+  return state.range.preset === "custom" ? `over ${rangeShort()}` : rangeSpan();
+}
+
+// Over long ranges, flows measured against each market's trailing-year normal mostly
+// show whether buying ran faster or slower than the year before. Say so on screen.
+function longRangeNote(start, end) {
+  return (parseDay(end) - parseDay(start)) / 864e5 > 200
+    ? " Over a range this long, totals mostly show whether buying ran above or below each market's pace in the year before."
+    : "";
+}
+
+function rangeDays(b = rangeBounds()) {
+  return (parseDay(b.end) - parseDay(b.start < "2016-01-01" ? "2016-01-01" : b.start)) / 864e5;
+}
+
+// Sum flows and dollar volume and measure the price change for every market over the
+// range. Uses daily rows when the range fits in the last three years, monthly otherwise.
+function aggregate(b = rangeBounds()) {
+  const key = `${b.start}|${b.end}|${b.inclusive ? 1 : 0}`;
+  if (state.aggCache && state.aggCache.key === key) return state.aggCache.value;
+  const S = state.data.series;
+  const D = S.daily;
+  const daily = b.start >= D.dates[0];
+  const rows = [];
+  let src;
+  if (daily) {
+    src = D;
+    D.dates.forEach((d, i) => { if (inRange(d, b)) rows.push(i); });
+  } else {
+    src = S.monthly;
+    src.end.forEach((e, i) => { if (overlapsRange(src.start[i], e, b)) rows.push(i); });
+  }
+  const assets = {};
+  if (rows.length) {
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    Object.keys(src.flow).forEach((t) => {
+      const sum = (arr) => rows.reduce((acc, i) => acc + (arr[i] || 0), 0);
+      const net = sum(src.flow[t]);
+      const dv = sum(src.dv[t]);
+      const closes = src.close[t];
+      let before = first > 0 ? closes[first - 1] : null;
+      if (before == null) before = closes.slice(first, last + 1).find((v) => v != null);
+      const after = closes[last];
+      let volumeRatio = null;
+      if (daily && first >= rows.length) {
+        const prior = src.dv[t].slice(first - rows.length, first);
+        const priorMean = prior.reduce((a, v) => a + (v || 0), 0) / prior.length;
+        if (priorMean > 0) volumeRatio = dv / rows.length / priorMean;
+      }
+      assets[t] = {
+        net_flow_bn: net,
+        dv_bn: dv,
+        ret: before && after ? after / before - 1 : null,
+        intensity: dv > 0 ? net / dv : null,
+        volume_ratio: volumeRatio,
+      };
+    });
+  }
+  const value = {
+    granularity: daily ? "daily" : "monthly",
+    start: rows.length ? (daily ? D.dates[rows[0]] : src.start[rows[0]]) : b.start,
+    end: rows.length ? (daily ? D.dates[rows[rows.length - 1]] : src.end[rows[rows.length - 1]]) : b.end,
+    periods: rows.length,
+    assets,
+  };
+  state.aggCache = { key, value };
+  return value;
+}
+
+// Port of pipeline/analytics.py allocate_flows: split each net outflow across net
+// inflows in proportion to size; any imbalance goes to or from the cash node.
+function allocateFlows(net, minShare = 0.002) {
+  const sources = Object.entries(net).filter(([, v]) => v != null && v < 0).map(([k, v]) => [k, -v]);
+  const sinks = Object.entries(net).filter(([, v]) => v != null && v > 0);
+  const totalOut = sources.reduce((a, [, v]) => a + v, 0);
+  const totalIn = sinks.reduce((a, [, v]) => a + v, 0);
+  let links = [];
+  if (totalOut > 0 && totalIn > 0) {
+    const matched = Math.min(totalOut, totalIn);
+    sources.forEach(([s, out]) => sinks.forEach(([d, inn]) => links.push({ source: s, target: d, value: matched * (out / totalOut) * (inn / totalIn) })));
+  }
+  if (totalOut > totalIn) sources.forEach(([s, out]) => links.push({ source: s, target: CASH_NODE, value: (totalOut - totalIn) * out / totalOut }));
+  else if (totalIn > totalOut) sinks.forEach(([d, inn]) => links.push({ source: CASH_NODE, target: d, value: (totalIn - totalOut) * inn / totalIn }));
+  const scale = Math.max(totalOut, totalIn, 1e-12);
+  links = links.filter((l) => l.value / scale >= minShare);
+  return { links, total_out_bn: totalOut, total_in_bn: totalIn };
+}
+
+// Port of class_flows: net within each class, cash balances the rest.
+function classFlows(assetNets) {
+  const groups = state.data.groups;
+  const net = Object.fromEntries(groups.map((g) => [g, 0]));
+  Object.entries(assetNets).forEach(([t, v]) => {
+    const a = state.assets[t];
+    if (v == null || !a || a.group === "Cash") return;
+    net[a.group] += v;
+  });
+  net.Cash = -groups.filter((g) => g !== "Cash").reduce((acc, g) => acc + net[g], 0);
+  const links = allocateFlows(net).links.filter((l) => l.source !== CASH_NODE && l.target !== CASH_NODE);
+  return { net, links, total_bn: links.reduce((a, l) => a + l.value, 0) };
+}
+
 // ---------- plain-language help ----------
 
 const INFO = {
@@ -260,7 +431,7 @@ function renderNow() {
     items.push(["No selloff under way: ", `the S&P 500 is ${fmtPct(k.drawdown, 1).replace(MINUS, "")} below its 1-year high and ${fmtPct(k.spy_20d)} over the past month.`]);
   }
   items.push([`Mood: ${d.regime.label}. `, `${REGIME_TEXT[d.regime.label] || ""} (score ${fmtNum(d.regime.score, 2, true)}).`]);
-  const month = { ...windowView(), wheel: d.windows["20"].wheel, span: "over the past month" };
+  const month = { wheel: d.windows["20"].wheel, span: "over the past month" };
   items.push(["Money flow: ", `${wheelHeadline(month)}.`]);
   const mmf = d.cash.retail_mmf;
   if (mmf && mmf.length > 12) {
@@ -297,6 +468,12 @@ function median(xs) {
 function renderKpis() {
   const d = state.data;
   const k = d.kpis;
+  const agg = aggregate().assets;
+  // Latest level, with the change over the selected range underneath.
+  const cashTile = (key, label) => {
+    const [value, change] = d.cash[key] ? changeOverRange(d.cash[key]) : [null, null];
+    return { info: key, label, value: fmtUsdBn(value), delta: change == null ? "No new data in range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}` };
+  };
   const r = d.regime;
   const pos = Math.max(-2, Math.min(2, r.score ?? 0));
   const tiles = [
@@ -307,12 +484,12 @@ function renderKpis() {
       delta: `Score ${fmtNum(r.score, 2, true)}`,
       gauge: ((pos + 2) / 4) * 100,
     },
-    { info: "spy", label: "S&P 500, 1 month", value: fmtPct(k.spy_20d), delta: `${fmtPct(k.drawdown)} from 1-year high` },
+    { info: "spy", label: `S&P 500, ${rangeShort()}`, value: fmtPct(agg.SPY && agg.SPY.ret), delta: `${fmtPct(k.drawdown)} from 1-year high` },
     { info: "vix", label: "VIX", value: fmtNum(k.vix, 1), delta: "Implied S&P 500 volatility" },
-    { info: "btc", label: "Bitcoin, 1 month", value: fmtPct(k.btc_20d), delta: "Crypto risk appetite" },
-    { info: "stablecoins", label: "Stablecoin supply", value: fmtUsdBn(k.stablecoins_bn), delta: `${fmtUsdBn(k.stablecoins_30d_bn, true)} in 30 days` },
-    { info: "retail_mmf", label: "Money funds", value: fmtUsdBn(k.retail_mmf_bn), delta: `${fmtUsdBn(k.retail_mmf_3m_bn, true)} in 3 months` },
-    { info: "net_liquidity", label: "Fed net liquidity", value: fmtUsdBn(k.net_liquidity_bn), delta: `${fmtUsdBn(k.net_liquidity_4w_bn, true)} in 4 weeks` },
+    { info: "btc", label: `Bitcoin, ${rangeShort()}`, value: fmtPct(agg["BTC-USD"] && agg["BTC-USD"].ret), delta: "Crypto risk appetite" },
+    cashTile("stablecoins", "Stablecoin supply"),
+    cashTile("retail_mmf", "Money funds"),
+    cashTile("net_liquidity", "Fed net liquidity"),
   ];
   const root = $("#kpis");
   root.replaceChildren();
@@ -355,7 +532,6 @@ function renderKpis() {
 
 // ---------- liquidity wheel ----------
 
-const WINDOW_WORDS = { 5: "week", 20: "month", 60: "three months" };
 
 function showTip(title, rows, x, y) {
   const tip = $("#tip");
@@ -400,35 +576,66 @@ function wheelHeadline(view) {
 
 state.replay = null;
 
-function windowView() {
-  const w = state.data.windows[state.window];
-  const words = WINDOW_WORDS[state.window] || `${state.window} days`;
+function rangeView() {
+  const agg = aggregate();
+  const marketNets = Object.fromEntries(Object.entries(agg.assets).map(([t, a]) => [t, a.net_flow_bn]));
   return {
-    start: w.start, end: w.end, wheel: w.wheel, span: `over the past ${words}`, hub: `moved in the past ${words}`,
-    marketNets: Object.fromEntries(Object.entries(w.assets).map(([t, a]) => [t, a.net_flow_bn])),
+    start: agg.start, end: agg.end, wheel: classFlows(marketNets),
+    span: rangeSpan(), hub: rangeHub(), marketNets, granularity: agg.granularity,
   };
 }
 
-function historyView(kind, i) {
-  const h = state.data.history[kind];
+// One period of flow history (a day, week or month) by its index in the source data.
+function periodAt(kind, i) {
   const groups = state.data.groups;
+  if (kind === "daily") {
+    const D = state.data.series.daily;
+    const marketNets = Object.fromEntries(Object.entries(D.flow).map(([t, v]) => [t, v[i]]));
+    return { start: D.dates[i], end: D.dates[i], wheel: classFlows(marketNets), marketNets };
+  }
+  const h = state.data.history[kind];
   const wheel = {
     net: Object.fromEntries(groups.map((g) => [g, h.net[g][i]])),
     links: h.links[i].map(([a, b, v]) => ({ source: groups[a], target: groups[b], value: v })),
     total_bn: h.total[i],
   };
-  const weekly = kind === "weekly";
-  const mw = state.data.markets_weekly;
-  const j = weekly && mw ? mw.end.indexOf(h.end[i]) : -1;
-  const marketNets = j >= 0 ? Object.fromEntries(Object.entries(mw.net).map(([t, v]) => [t, v[j]])) : null;
-  const name = weekly ? `the week of ${fmtDate(h.start[i])}` : parseDay(h.end[i]).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+  let marketNets = null;
+  if (kind === "weekly" && state.data.markets_weekly) {
+    const mw = state.data.markets_weekly;
+    const j = mw.end.indexOf(h.end[i]);
+    if (j >= 0) marketNets = Object.fromEntries(Object.entries(mw.net).map(([t, v]) => [t, v[j]]));
+  } else if (kind === "monthly") {
+    const M = state.data.series.monthly;
+    const j = M.end.indexOf(h.end[i]);
+    if (j >= 0) marketNets = Object.fromEntries(Object.entries(M.flow).map(([t, v]) => [t, v[j]]));
+  }
+  return { start: h.start[i], end: h.end[i], wheel, marketNets };
+}
+
+// Source indices of the periods that fall in the selected range.
+function periodsInRange(kind) {
+  const b = rangeBounds();
+  if (kind === "daily") {
+    return state.data.series.daily.dates.map((d, i) => (inRange(d, b) ? i : -1)).filter((i) => i >= 0);
+  }
+  const h = state.data.history[kind];
+  return h.end.map((e, i) => (overlapsRange(h.start[i], e, b) ? i : -1)).filter((i) => i >= 0);
+}
+
+function historyView(kind, i) {
+  const p = periodAt(kind, i);
+  const names = {
+    daily: () => fmtDate(p.end),
+    weekly: () => `the week of ${fmtDate(p.start)}`,
+    monthly: () => parseDay(p.end).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" }),
+  };
+  const name = names[kind]();
   return {
-    start: h.start[i], end: h.end[i], wheel,
-    span: `in ${name}`,
-    hub: weekly ? "moved that week" : "moved that month",
-    label: weekly ? `Week of ${fmtDate(h.start[i])}` : name,
-    key: `${kind}:${i}`,
-    marketNets,
+    ...p,
+    span: `on ${name}`.replace("on the week", "in the week").replace(/^on ([A-Z][a-z]+ \d{4})$/, "in $1"),
+    hub: { daily: "moved that day", weekly: "moved that week", monthly: "moved that month" }[kind],
+    label: kind === "weekly" ? `Week of ${fmtDate(p.start)}` : name,
+    key: `${kind}:${p.end}`,
   };
 }
 
@@ -445,7 +652,7 @@ function episodeView(i) {
 }
 
 function currentView() {
-  return state.replay || windowView();
+  return state.replay || rangeView();
 }
 
 function replay(view, scroll = true) {
@@ -489,7 +696,7 @@ function buildReplaySelect() {
   select.replaceChildren();
   const now = document.createElement("option");
   now.value = "";
-  now.textContent = "Now (selected window)";
+  now.textContent = "Selected range";
   select.appendChild(now);
   const group = document.createElement("optgroup");
   group.label = "Past S&P 500 selloffs";
@@ -505,8 +712,11 @@ function buildReplaySelect() {
 
 function viewFromKey(key) {
   if (!key) return null;
-  const [kind, i] = key.split(":");
-  return kind === "ep" ? episodeView(+i) : historyView(kind, +i);
+  const [kind, id] = key.split(":");
+  if (kind === "ep") return state.data.selloffs.episodes[+id] ? episodeView(+id) : null;
+  const dates = kind === "daily" ? state.data.series.daily.dates : (state.data.history[kind] || {}).end;
+  const i = dates ? dates.indexOf(id) : -1;
+  return i >= 0 ? historyView(kind, i) : null;
 }
 
 // Money flowing through the wheel: dots travel along each ribbon from source to target.
@@ -568,7 +778,7 @@ function renderWheel(t) {
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
   $("#wheel-headline").textContent = wheelHeadline(view);
-  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.`;
+  $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.${state.replay ? "" : longRangeNote(view.start, view.end)}`;
   $("#wheel-sub").appendChild(infoButton("estimated flows", "flows"));
 
   // Side list: net per class, biggest inflow first.
@@ -815,10 +1025,10 @@ function renderWheel(t) {
 // ---------- rotation map ----------
 
 function renderSankey(t) {
-  const w = state.data.windows[state.window];
-  const sk = w.sankey;
+  const w = aggregate();
+  const sk = allocateFlows(Object.fromEntries(Object.entries(w.assets).map(([k, a]) => [k, a.net_flow_bn])));
   $("#sankey-sub").textContent =
-    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.`;
+    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.${longRangeNote(w.start, w.end)}`;
   const ids = new Set();
   sk.links.forEach((l) => { ids.add(l.source); ids.add(l.target); });
   const nodeTotals = {};
@@ -928,7 +1138,7 @@ function barCategoryName(ticker) {
 }
 
 function renderIntensity(t) {
-  const w = state.data.windows[state.window];
+  const w = aggregate();
   const rows = Object.entries(w.assets)
     .filter(([, v]) => v.intensity != null)
     .sort((a, b) => a[1].intensity - b[1].intensity);
@@ -943,7 +1153,7 @@ function renderIntensity(t) {
       formatter: (p) => {
         const v = w.assets[rows[p.dataIndex][0]];
         return `<div style="margin-bottom:4px">${esc(assetName(rows[p.dataIndex][0]))}</div>` +
-          row("Net pressure", fmtPct(v.intensity)) +
+          row("Net pressure (share of trading)", fmtPct(v.intensity)) +
           row("Est. net flow", fmtUsdBn(v.net_flow_bn, true)) +
           row("Return", fmtPct(v.ret)) +
           row("Volume vs normal", `${fmtNum(v.volume_ratio, 2)}×`);
@@ -982,22 +1192,81 @@ function renderIntensity(t) {
 
 state.history = { kind: "weekly", mode: "flows" };
 
+// Which grains the selected range supports, and a sensible default for it.
+function grainAvailable(kind) {
+  const b = rangeBounds();
+  if (kind === "daily") return b.start >= state.data.series.daily.dates[0];
+  // Weekly history covers three years; allow a few days of slack so the 3Y preset fits.
+  if (kind === "weekly") return b.start >= shiftDate(state.data.history.weekly.start[0], -10);
+  return true;
+}
+
+function autoGrain() {
+  const days = rangeDays();
+  if (days <= 45 && grainAvailable("daily")) return "daily";
+  if (days <= 3 * 366 && grainAvailable("weekly")) return "weekly";
+  return "monthly";
+}
+
+// Net flow per class for each period of the chosen grain inside the range.
+function historyData(kind) {
+  const groups = state.data.groups;
+  const idx = periodsInRange(kind);
+  const out = { idx, start: [], end: [], net: Object.fromEntries(groups.map((g) => [g, []])), total: [] };
+  if (kind === "daily") {
+    idx.forEach((i) => {
+      const p = periodAt("daily", i);
+      out.start.push(p.start);
+      out.end.push(p.end);
+      groups.forEach((g) => out.net[g].push(p.wheel.net[g]));
+      out.total.push(p.wheel.total_bn);
+    });
+  } else {
+    const h = state.data.history[kind];
+    idx.forEach((i) => {
+      out.start.push(h.start[i]);
+      out.end.push(h.end[i]);
+      groups.forEach((g) => out.net[g].push(h.net[g][i]));
+      out.total.push(h.total[i]);
+    });
+  }
+  return out;
+}
+
+function capitalise(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function renderHistory(t) {
+  if (!grainAvailable(state.history.kind)) state.history.kind = autoGrain();
   const { kind, mode } = state.history;
-  const h = state.data.history[kind];
+  const h = historyData(kind);
   const groups = state.data.groups;
   const color = (g) => t.groups[state.groupIndex[g] % t.groups.length];
-  document.querySelectorAll("#history-kind button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.kind === kind)));
+  document.querySelectorAll("#history-kind button").forEach((b) => {
+    b.setAttribute("aria-checked", String(b.dataset.kind === kind));
+    b.disabled = !grainAvailable(b.dataset.kind);
+  });
   document.querySelectorAll("#history-mode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
 
+  const c = chart("chart-history");
+  if (!h.end.length) {
+    c.clear();
+    $("#history-headline").textContent = "No flow history in this range";
+    $("#history-sub").textContent = "Flow history starts in January 2017. Pick a later or longer range.";
+    table(cardTable("history"), ["Period"], []);
+    return;
+  }
   const totals = Object.fromEntries(groups.map((g) => [g, d3.sum(h.net[g])]));
   const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
   const [topIn, topOut] = [ranked[0], ranked[ranked.length - 1]];
-  const span = `${fmtDate(h.start[0])} – ${fmtDate(h.end[h.end.length - 1])}`;
+  const span = fmtRange(h.start[0], h.end[h.end.length - 1]);
+  const lead = state.range.preset === "ALL" ? `Since ${fmtMonth(h.start[0])}` : capitalise(rangeSpan());
   $("#history-headline").textContent =
-    `Since ${fmtMonth(h.start[0])}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})`;
+    `${lead}, the most money flowed into ${topIn[0]} (${fmtUsdBn(topIn[1], true)}) and out of ${topOut[0]} (${fmtUsdBn(topOut[1], true)})`;
+  const unit = { daily: "day", weekly: "week", monthly: "month" }[kind];
   $("#history-sub").textContent = mode === "flows"
-    ? `Net flow per ${kind === "weekly" ? "week" : "month"}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.`
+    ? `Net flow per ${unit}, ${span}. Bars above zero are money coming in, below zero money going out. Shaded bands are S&P 500 selloffs.`
     : `Running total of net flows, ${span}. A rising line means a class keeps attracting money. Shaded bands are S&P 500 selloffs.`;
 
   const running = (arr) => { let acc = 0; return arr.map((v) => (acc += v)); };
@@ -1016,7 +1285,6 @@ function renderHistory(t) {
           endLabel: { show: !narrowScreen(), formatter: "{a}", color: t.text2, fontSize: 11 }, labelLayout: { moveOverlap: "shiftY" } };
   });
 
-  const c = chart("chart-history");
   c.setOption({
     grid: { left: 8, right: mode === "cumulative" && !narrowScreen() ? 130 : 16, top: narrowScreen() ? 64 : 40, bottom: 24, containLabel: true },
     legend: {
@@ -1037,11 +1305,10 @@ function renderHistory(t) {
     },
     xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true } },
     yAxis: { type: "value", ...axisStyle(t), axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
-    dataZoom: [{ type: "inside", start: narrowScreen() && kind === "weekly" ? 66 : 0, end: 100 }],
     series,
   }, true);
   c.off("click");
-  c.on("click", (p) => replay(historyView(kind, p.dataIndex)));
+  c.on("click", (p) => replay(historyView(kind, h.idx[p.dataIndex])));
   // Clicking anywhere in a column (not only on a bar segment) replays that period too.
   c.getZr().off("click");
   c.getZr().on("click", (ev) => {
@@ -1052,7 +1319,7 @@ function renderHistory(t) {
     const ends = h.end.map((d) => parseDay(d).getTime());
     let best = 0;
     ends.forEach((e, i) => { if (Math.abs(e - x) < Math.abs(ends[best] - x)) best = i; });
-    replay(historyView(kind, best));
+    replay(historyView(kind, h.idx[best]));
   });
 
   table(cardTable("history"), ["Period", ...groups, "Total moved"],
@@ -1095,14 +1362,14 @@ function renderCloseup(t) {
   $("#closeup-select").value = tk;
   $("#closeup-title").textContent = `Market close-up: ${name}`;
 
-  // Stats row.
-  const m = d.windows["20"].assets[tk] || {};
+  // Stats row: the selected range first, then fixed history.
+  const m = aggregate().assets[tk] || {};
   const st = (d.streaks.assets || {})[tk];
   const pb = d.selloffs.playbook.find((r) => r.ticker === tk);
   const stats = [
-    ["Past month", fmtPct(m.ret), m.intensity != null ? `Net ${m.intensity >= 0 ? "buying" : "selling"} ${fmtPct(Math.abs(m.intensity), 0, false)} of normal turnover` : ""],
+    [`Range: ${rangeShort()}`, fmtPct(m.ret), m.net_flow_bn != null ? `Net flow ${fmtUsdBn(m.net_flow_bn, true)}, ${fmtPct(Math.abs(m.intensity || 0), 0, false)} of trading` : ""],
     st ? ["Last 8 weeks", fmtUsdBn(st.total_bn, true), `Inflows in ${st.inflow_weeks} of ${st.weeks} weeks`] : null,
-    pb && tk !== d.meta.benchmark ? ["In past selloffs", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
+    pb && tk !== d.meta.benchmark ? ["In selloffs since 2016", `rose ${Math.round(pb.hit_rate * pb.episodes)} of ${pb.episodes}`, `Median move ${fmtPct(pb.median_ret)}`] : null,
     pb && pb.median_rebound != null && tk !== d.meta.benchmark ? ["After the bottom", fmtPct(pb.median_rebound), `Median over the next ${d.selloffs.rebound_days} trading days`] : null,
   ].filter(Boolean);
   const ul = $("#closeup-stats");
@@ -1118,12 +1385,23 @@ function renderCloseup(t) {
     ul.appendChild(li);
   });
 
-  if (!mw) return;
-  const closes = mw.close[tk];
-  const firstIdx = closes.findIndex((v) => v != null);
-  const base = closes[firstIdx];
-  const price = mw.end.map((e, i) => [e, closes[i] == null ? null : Math.round((closes[i] / base) * 1000) / 10]);
-  const flows = mw.end.map((e, i) => [e, mw.net[tk][i]]);
+  // Points for the range: daily up to about six months, weekly up to three years, else monthly.
+  const b = rangeBounds();
+  const D = d.series.daily;
+  const M = d.series.monthly;
+  let pts;
+  if (b.start >= D.dates[0] && rangeDays(b) <= 200) {
+    pts = { unit: "day", label: "Daily net flow", idx: D.dates.map((x, i) => (inRange(x, b) ? i : -1)).filter((i) => i >= 0), end: D.dates, close: D.close[tk], flow: D.flow[tk] };
+  } else if (mw && b.start >= shiftDate(mw.end[0], -10)) {
+    pts = { unit: "week", label: "Weekly net flow", idx: mw.end.map((x, i) => (inRange(x, b) ? i : -1)).filter((i) => i >= 0), end: mw.end, close: mw.close[tk], flow: mw.net[tk] };
+  } else {
+    pts = { unit: "month", label: "Monthly net flow", idx: M.end.map((x, i) => (overlapsRange(M.start[i], x, b) ? i : -1)).filter((i) => i >= 0), end: M.end, close: M.close[tk], flow: M.flow[tk] };
+  }
+  const ends = pts.idx.map((i) => pts.end[i]);
+  const closes = pts.idx.map((i) => pts.close[i]);
+  const base = closes.find((v) => v != null);
+  const price = ends.map((e, i) => [e, closes[i] == null || !base ? null : Math.round((closes[i] / base) * 1000) / 10]);
+  const flows = ends.map((e, i) => [e, pts.flow[pts.idx[i]]]);
   const narrow = narrowScreen();
   const c = chart("chart-closeup");
   c.setOption({
@@ -1137,9 +1415,10 @@ function renderCloseup(t) {
       trigger: "axis",
       formatter: (ps) => {
         const i = ps[0].dataIndex;
-        return `<div style="margin-bottom:4px">Week ending ${esc(fmtDate(mw.end[i]))}</div>` +
+        const when = pts.unit === "day" ? fmtDate(ends[i]) : pts.unit === "week" ? `Week ending ${fmtDate(ends[i])}` : fmtMonth(ends[i]);
+        return `<div style="margin-bottom:4px">${esc(when)}</div>` +
           row("Price (indexed)", price[i][1] == null ? "–" : price[i][1].toFixed(1), t.groups[state.groupIndex[state.assets[tk].group]]) +
-          row("Net flow that week", fmtUsdBn(flows[i][1], true));
+          row(`Net flow that ${pts.unit}`, fmtUsdBn(flows[i][1], true));
       },
     },
     xAxis: [
@@ -1148,7 +1427,7 @@ function renderCloseup(t) {
     ],
     yAxis: [
       { type: "value", gridIndex: 0, scale: true, name: "Price, indexed to 100", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: narrow ? 3 : 4 },
-      { type: "value", gridIndex: 1, name: "Weekly net flow", nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
+      { type: "value", gridIndex: 1, name: pts.label, nameGap: 12, nameTextStyle: { color: t.muted, fontSize: 11, align: "left" }, ...axisStyle(t), axisLine: { show: false }, splitNumber: 3, axisLabel: { color: t.muted, fontSize: 11, formatter: fmtAxisUsd } },
     ],
     series: [
       {
@@ -1158,29 +1437,65 @@ function renderCloseup(t) {
         markArea: selloffBands(t),
       },
       {
-        type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 8,
+        type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: pts.unit === "day" && ends.length < 40 ? 14 : 8,
         data: flows.map(([e, v]) => ({ value: [e, v], itemStyle: { color: v >= 0 ? t.pos : t.neg } })),
         markArea: selloffBands(t),
       },
     ],
   }, true);
-  table(cardTable("closeup"), ["Week ending", "Price (indexed)", "Net flow"],
-    mw.end.map((e, i) => [fmtDate(e), price[i][1] == null ? "–" : price[i][1].toFixed(1), fmtUsdBn(flows[i][1], true)]).reverse());
+  table(cardTable("closeup"), [pts.unit === "month" ? "Month" : pts.unit === "week" ? "Week ending" : "Day", "Price (indexed)", "Net flow"],
+    ends.map((e, i) => [pts.unit === "month" ? fmtMonth(e) : fmtDate(e), price[i][1] == null ? "–" : price[i][1].toFixed(1), fmtUsdBn(flows[i][1], true)]).reverse());
 }
 
 // ---------- selloffs ----------
 
+// Selloffs that overlap the selected range.
+function selloffsInRange() {
+  const b = rangeBounds();
+  return state.data.selloffs.episodes.filter((e) => overlapsRange(e.peak, e.trough, b));
+}
+
+// Port of pipeline/analytics.py playbook(): how each market behaved across completed selloffs.
+function computePlaybook(eps) {
+  const done = eps.filter((e) => !e.ongoing);
+  return state.data.assets.map(({ ticker }) => {
+    const pick = (k) => done.map((e) => e.assets[ticker] && e.assets[ticker][k]).filter((v) => v != null);
+    const rets = pick("ret");
+    if (!rets.length) return null;
+    return {
+      ticker,
+      episodes: rets.length,
+      median_ret: median(rets),
+      hit_rate: rets.filter((x) => x > 0).length / rets.length,
+      median_rebound: median(pick("rebound")),
+      median_volume_ratio: median(pick("volume_ratio")),
+    };
+  }).filter(Boolean).sort((a, b) => b.median_ret - a.median_ret);
+}
+
+function emptyChart(c, t, text) {
+  c.clear();
+  c.setOption({ title: { text, left: "center", top: "middle", textStyle: { color: t.muted, fontSize: 13, fontWeight: 400, width: 260, overflow: "break" } } });
+}
+
 function renderPlaybook(t) {
   const s = state.data.selloffs;
-  const done = s.episodes.filter((e) => !e.ongoing).length;
-  $("#selloff-sub").textContent =
-    `${done} completed S&P 500 selloffs of ${Math.round(s.threshold * 100)}% or more since ${s.episodes.length ? s.episodes[0].peak.slice(0, 4) : "–"}. ` +
-    "What rose while stocks fell is where sellers' money went.";
-  $("#threshold-text").textContent = `${Math.round(s.threshold * 100)}%`;
-  const rows = s.playbook.slice().reverse();
+  const pct = `${Math.round(s.threshold * 100)}%`;
+  const done = selloffsInRange().filter((e) => !e.ongoing).length;
+  $("#selloff-sub").textContent = done
+    ? `${done} completed S&P 500 selloff${done === 1 ? "" : "s"} of ${pct} or more ${rangeSpan()}. What rose while stocks fell is where sellers' money went.`
+    : `No completed S&P 500 selloffs of ${pct} or more ${rangeSpan()}. Choose a longer range, such as 5Y or All, to see how markets behaved in past selloffs.`;
+  $("#threshold-text").textContent = pct;
+  const playbook = computePlaybook(selloffsInRange());
+  const rows = playbook.slice().reverse();
   const vals = rows.map((r) => r.median_ret);
   const playbookLabel = barLabel(t, vals, 1);
   const c = chart("chart-playbook");
+  if (!rows.length) {
+    emptyChart(c, t, "No completed selloffs in this range");
+    table(cardTable("playbook"), ["Market"], []);
+    return;
+  }
   c.setOption({
     grid: barGrid(),
     tooltip: {
@@ -1216,7 +1531,7 @@ function renderPlaybook(t) {
   c.off("click");
   c.on("click", (p) => openCloseup(rows[p.dataIndex].ticker));
   table(cardTable("playbook"), ["Market", "Median return", "Rose in", `Next ${s.rebound_days}d`, "Volume vs normal"],
-    s.playbook.map((r) => [
+    playbook.map((r) => [
       assetName(r.ticker), fmtPct(r.median_ret), `${Math.round(r.hit_rate * r.episodes)}/${r.episodes}`,
       fmtPct(r.median_rebound), `${fmtNum(r.median_volume_ratio, 2)}×`,
     ]));
@@ -1224,9 +1539,17 @@ function renderPlaybook(t) {
 
 function renderHeatmap(t) {
   const s = state.data.selloffs;
-  const eps = s.episodes.slice().reverse();
-  const tickers = s.playbook.map((r) => r.ticker);
+  const eps = selloffsInRange().reverse();
+  const tickers = (computePlaybook(eps.length ? eps : s.episodes)).map((r) => r.ticker);
   const el = document.getElementById("chart-heatmap");
+  if (!eps.length) {
+    el.style.height = "240px";
+    const c0 = chart("chart-heatmap");
+    c0.resize();
+    emptyChart(c0, t, "No selloffs in this range");
+    table(cardTable("heatmap"), ["Selloff"], []);
+    return;
+  }
   el.style.height = `${Math.max(240, eps.length * 24 + 110)}px`;
   const data = [];
   eps.forEach((e, y) => tickers.forEach((tk, x) => {
@@ -1457,6 +1780,21 @@ const CASH_PANELS = [
   { key: "net_liquidity", title: "Fed net liquidity", note: "Assets − TGA − RRP" },
 ];
 
+// [date, value] points inside the range, plus the last point before it, so slow
+// (weekly or monthly) series still have a starting value for the change.
+function pointsInRange(pts, b = rangeBounds()) {
+  const inside = pts.filter((x) => inRange(x[0], b));
+  const before = pts.filter((x) => x[0] <= b.start);
+  return before.length ? [before[before.length - 1], ...inside] : inside;
+}
+
+// Value at the end of the range and its change over the range, for a [date, value] series.
+function changeOverRange(pts, b = rangeBounds()) {
+  const r = pointsInRange(pts, b);
+  if (!r.length) return [null, null];
+  return [r[r.length - 1][1], r.length > 1 ? r[r.length - 1][1] - r[0][1] : null];
+}
+
 function renderCash(t) {
   const grid = $("#cash-grid");
   const cash = state.data.cash;
@@ -1472,12 +1810,11 @@ function renderCash(t) {
     });
   }
   CASH_PANELS.filter((p) => cash[p.key]).forEach((p) => {
-    const pts = cash[p.key];
-    const last = pts[pts.length - 1];
-    const yearAgo = pts.find((x) => x[0] >= shiftDate(last[0], -365)) || pts[0];
+    const pts = pointsInRange(cash[p.key]);
+    const [value, change] = changeOverRange(cash[p.key]);
     const card = document.getElementById(`chart-cash-${p.key}`).parentElement;
-    card.querySelector(".figure").textContent = fmtUsdBn(last[1]);
-    card.querySelector(".delta").textContent = `${fmtUsdBn(last[1] - yearAgo[1], true)} over 12 months`;
+    card.querySelector(".figure").textContent = fmtUsdBn(value);
+    card.querySelector(".delta").textContent = change == null ? "No new data in this range" : `${fmtUsdBn(change, true)} ${rangeTileSpan()}`;
     chart(`chart-cash-${p.key}`).setOption({
       grid: { left: 44, right: 8, top: 10, bottom: 22 },
       tooltip: {
@@ -1563,7 +1900,8 @@ function lineSeries(t, name, data, color, extra = {}) {
 
 function renderRegime(t) {
   const r = state.data.regime;
-  const hist = r.history;
+  const b = rangeBounds();
+  const hist = r.history.filter(([d]) => inRange(d, b));
   chart("chart-regime").setOption({
     ...lineOptions(t, {
       series: [lineSeries(t, "Risk appetite", hist, t.groups[0], {
@@ -1608,22 +1946,46 @@ function renderRegime(t) {
     hist.slice().reverse().filter((_, i) => i % 5 === 0).map(([d, v]) => [fmtDate(d), fmtNum(v, 2, true), v >= 0.5 ? "Risk-on" : v <= -0.5 ? "Risk-off" : "Neutral"]));
 }
 
+// Prices for the range, indexed to 100 at its start: daily rows when they cover the range,
+// monthly closes otherwise.
+function performanceInRange() {
+  const b = rangeBounds();
+  const D = state.data.series.daily;
+  const M = state.data.series.monthly;
+  const daily = b.start >= D.dates[0];
+  const src = daily ? D : M;
+  const dates = daily ? D.dates : M.end;
+  const idx = dates.map((d, i) => (daily ? inRange(d, b) : overlapsRange(M.start[i], d, b)) ? i : -1).filter((i) => i >= 0);
+  if (idx.length && idx[0] > 0) idx.unshift(idx[0] - 1); // start from the close just before the range
+  const series = {};
+  Object.keys(src.close).forEach((tk) => {
+    const closes = idx.map((i) => src.close[tk][i]);
+    const base = closes.find((v) => v != null);
+    series[tk] = closes.map((v) => (v == null || !base ? null : Math.round((v / base) * 1000) / 10));
+  });
+  return { dates: idx.map((i) => dates[i]), series };
+}
+
 function renderPerformance(t) {
-  const p = state.data.performance;
+  const p = performanceInRange();
   const tickers = REPRESENTATIVES.filter((tk) => p.series[tk]);
   chart("chart-performance").setOption(lineOptions(t, {
     series: tickers.map((tk) => lineSeries(t, assetName(tk), p.dates.map((d, i) => [d, p.series[tk][i]]), assetColor(tk, t))),
     yFormatter: (v) => v.toFixed(0),
     valueFormatter: (v) => v.toFixed(1),
   }), true);
-  const step = 5;
+  const step = p.dates.length > 120 ? 5 : 1;
   table(cardTable("performance"), ["Date", ...tickers.map(assetName)],
     p.dates.map((d, i) => [fmtDate(d), ...tickers.map((tk) => (p.series[tk][i] == null ? "–" : p.series[tk][i].toFixed(1)))])
       .filter((_, i, arr) => (arr.length - 1 - i) % step === 0).reverse());
 }
 
 function renderCorrelation(t) {
-  const c = state.data.correlations;
+  const b = rangeBounds();
+  const all = state.data.correlations;
+  const src = all.daily && b.start >= all.daily.dates[0] ? all.daily : all;
+  const idx = src.dates.map((d, i) => (inRange(d, b) ? i : -1)).filter((i) => i >= 0);
+  const c = { dates: idx.map((i) => src.dates[i]), series: Object.fromEntries(Object.entries(src.series).map(([k, v]) => [k, idx.map((i) => v[i])])) };
   // One market per class, so no two lines share a colour.
   const seen = new Set();
   const tickers = Object.keys(c.series).filter((tk) => {
@@ -1668,8 +2030,11 @@ function safely(name, fn, t) {
 function renderAll() {
   const t = theme();
   safely("summary", renderNow);
+  syncRangeControls();
   safely("headline", renderKpis);
-  renderWindow();
+  safely("liquidity wheel", renderWheel, t);
+  safely("rotation map", renderSankey, t);
+  safely("buying vs selling", renderIntensity, t);
   safely("liquidity history", renderHistory, t);
   safely("market close-up", renderCloseup, t);
   safely("selloff playbook", renderPlaybook, t);
@@ -1681,33 +2046,84 @@ function renderAll() {
   safely("correlation", renderCorrelation, t);
 }
 
-function renderWindow() {
-  const t = theme();
-  document.querySelectorAll("#window-picker button").forEach((b) => {
-    b.setAttribute("aria-checked", String(b.dataset.window === state.window));
+// ---------- range controls ----------
+
+function buildRangeControls() {
+  const box = $("#range-presets");
+  box.replaceChildren();
+  RANGE_PRESETS.forEach(([key, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.dataset.range = key;
+    b.textContent = label;
+    b.addEventListener("click", () => setRange({ preset: key }));
+    box.appendChild(b);
   });
-  safely("liquidity wheel", renderWheel, t);
-  safely("rotation map", renderSankey, t);
-  safely("buying vs selling", renderIntensity, t);
+  const from = $("#range-from");
+  const to = $("#range-to");
+  from.min = to.min = "2016-01-01";
+  from.max = to.max = state.data.meta.as_of;
 }
 
-// Shareable links: the view lives in the URL hash (#w=20&r=ep:12&m=GLD&hk=monthly&hm=cumulative).
+function syncRangeControls() {
+  const custom = state.range.preset === "custom";
+  document.querySelectorAll("#range-presets button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.range === state.range.preset)));
+  $("#range-custom-toggle").setAttribute("aria-pressed", String(custom));
+  const b = rangeBounds();
+  if (!$("#range-from").value || custom) $("#range-from").value = b.start < "2016-01-01" ? "2016-01-01" : b.start;
+  if (!$("#range-to").value || custom) $("#range-to").value = b.end;
+}
+
+function setRange(range, { persist = true } = {}) {
+  state.range = { preset: range.preset, start: range.start || null, end: range.end || null };
+  state.aggCache = null;
+  state.replay = null;
+  state.history.kind = autoGrain();
+  syncReplayControls();
+  if (persist) storage("set", "lfm-range", JSON.stringify(state.range));
+  writeHash();
+  renderAll();
+}
+
+function applyCustomRange() {
+  let start = $("#range-from").value;
+  let end = $("#range-to").value;
+  if (!start || !end) return;
+  if (start > end) [start, end] = [end, start];
+  setRange({ preset: "custom", start, end });
+}
+
+// Shareable links: the view lives in the URL hash
+// (#range=3M&r=ep:12&m=GLD&hk=monthly&hm=cumulative, or from=…&to=… for a custom range).
 function writeHash() {
   if (!state.data) return;
   const params = new URLSearchParams();
-  params.set("w", state.window);
+  if (state.range.preset === "custom") {
+    params.set("from", state.range.start);
+    params.set("to", state.range.end);
+  } else {
+    params.set("range", state.range.preset);
+  }
   if (state.replay) params.set("r", state.replay.key);
   if (state.market !== "SPY") params.set("m", state.market);
-  if (state.history.kind !== "weekly") params.set("hk", state.history.kind);
+  if (state.history.kind !== autoGrain()) params.set("hk", state.history.kind);
   if (state.history.mode !== "flows") params.set("hm", state.history.mode);
   history.replaceState(null, "", `#${params}`);
 }
 
 function readHash() {
   const params = new URLSearchParams(location.hash.slice(1));
-  if (!params.has("w") && !params.has("r") && !params.has("m")) return;
+  if (![...params.keys()].length) return;
   const d = state.data;
-  if (d.windows[params.get("w")]) state.window = params.get("w");
+  const legacy = { 5: "1W", 20: "1M", 60: "3M" }[params.get("w")];
+  const preset = params.get("range") || legacy;
+  if (RANGE_INFO[preset]) state.range = { preset, start: null, end: null };
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (iso.test(params.get("from") || "") && iso.test(params.get("to") || "")) {
+    state.range = { preset: "custom", start: params.get("from"), end: params.get("to") };
+  }
+  state.history.kind = autoGrain();
   if (params.get("hk") && d.history[params.get("hk")]) state.history.kind = params.get("hk");
   if (["flows", "cumulative"].includes(params.get("hm"))) state.history.mode = params.get("hm");
   if (params.get("m") && state.assets[params.get("m")]) state.market = params.get("m");
@@ -1759,16 +2175,14 @@ function applyTheme(mode) {
 }
 
 function wireControls() {
-  document.querySelectorAll("#window-picker button").forEach((b) => {
-    b.addEventListener("click", () => {
-      state.window = b.dataset.window;
-      state.replay = null;
-      syncReplayControls();
-      storage("set", "lfm-window", state.window);
-      writeHash();
-      renderWindow();
-    });
+  $("#range-custom-toggle").addEventListener("click", () => {
+    const box = $("#custom-range");
+    box.hidden = !box.hidden;
+    $("#range-custom-toggle").setAttribute("aria-expanded", String(!box.hidden));
+    if (!box.hidden) $("#range-from").focus();
   });
+  $("#range-apply").addEventListener("click", applyCustomRange);
+  ["range-from", "range-to"].forEach((id) => $(`#${id}`).addEventListener("keydown", (ev) => { if (ev.key === "Enter") applyCustomRange(); }));
 
   document.querySelectorAll(".table-toggle").forEach((btn) => {
     btn.setAttribute("aria-pressed", "false");
@@ -1887,8 +2301,14 @@ async function main() {
 
   buildReplaySelect();
   buildCloseupSelect();
-  const saved = storage("get", "lfm-window");
-  if (saved && data.windows[saved]) state.window = saved;
+  buildRangeControls();
+  try {
+    const saved = JSON.parse(storage("get", "lfm-range") || "null");
+    if (saved && (RANGE_INFO[saved.preset] || (saved.preset === "custom" && saved.start && saved.end))) state.range = saved;
+  } catch (e) {
+    // ignore a malformed saved range
+  }
+  state.history.kind = autoGrain();
   readHash();
   syncReplayControls();
 

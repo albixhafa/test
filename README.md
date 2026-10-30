@@ -27,6 +27,10 @@ Treasury's cash account.
 
 Every chart has a **Table** toggle with the underlying numbers.
 
+A **date range** bar under the menu (1W, 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, All, or custom dates) drives
+every chart and table. The page aggregates the range itself from the daily rows (last three years)
+or monthly rows (since 2017) that the pipeline publishes in `series`.
+
 ## Important caveat: flows are estimated
 
 Every share sold has a buyer, so a selloff doesn't drain a fixed pot of money. What
@@ -82,7 +86,7 @@ your notification settings or the repository's **Watch** menu.
 ## Sharing a view
 
 The address bar keeps the selected window, replayed period, market close-up and history
-view (for example `#w=60&r=ep:12&m=GLD`), and the **Share** button copies it.
+view (for example `#range=3M&r=ep:12&m=GLD`, or `#from=2020-02-01&to=2020-04-30`), and the **Share** button copies it.
 
 ## Layout
 

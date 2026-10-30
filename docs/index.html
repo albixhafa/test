@@ -27,7 +27,8 @@
     </div>
   </header>
   <nav class="section-nav" aria-label="Sections">
-    <div class="wrap section-nav-inner">
+    <div class="wrap nav-row">
+    <div class="section-nav-inner">
       <a href="#now">Now</a>
       <a href="#wheel">Wheel</a>
       <a href="#history">History</a>
@@ -37,6 +38,16 @@
       <a href="#cash">Cash</a>
       <a href="#risk">Risk</a>
       <a href="#guide">Guide</a>
+    </div>
+    <div class="range-bar" role="group" aria-label="Date range for every chart and table">
+      <div class="segmented compact" id="range-presets" role="radiogroup" aria-label="Date range"></div>
+      <button type="button" class="ghost small" id="range-custom-toggle" aria-expanded="false" aria-controls="custom-range">Custom</button>
+      <span class="custom-range" id="custom-range" hidden>
+        <label>From <input type="date" id="range-from"></label>
+        <label>to <input type="date" id="range-to"></label>
+        <button type="button" class="ghost small" id="range-apply">Apply</button>
+      </span>
+    </div>
     </div>
   </nav>
 
@@ -59,11 +70,6 @@
         <div>
           <h2>The liquidity wheel</h2>
           <p class="muted">Money moving between stocks, bonds, cash, gold, crypto and the dollar.</p>
-        </div>
-        <div class="segmented" role="radiogroup" aria-label="Lookback window" id="window-picker">
-          <button type="button" role="radio" data-window="5">1 week</button>
-          <button type="button" role="radio" data-window="20">1 month</button>
-          <button type="button" role="radio" data-window="60">3 months</button>
         </div>
       </div>
       <article class="card" data-card="wheel">
@@ -105,8 +111,9 @@
         </div>
         <div class="controls">
           <div class="segmented" role="radiogroup" aria-label="History period" id="history-kind">
-            <button type="button" role="radio" data-kind="weekly">Weekly · 3 years</button>
-            <button type="button" role="radio" data-kind="monthly">Monthly · since 2017</button>
+            <button type="button" role="radio" data-kind="daily">Daily</button>
+            <button type="button" role="radio" data-kind="weekly">Weekly</button>
+            <button type="button" role="radio" data-kind="monthly">Monthly</button>
           </div>
           <div class="segmented" role="radiogroup" aria-label="History view" id="history-mode">
             <button type="button" role="radio" data-mode="flows">Flows</button>
@@ -150,7 +157,7 @@
           <header class="card-head">
             <div>
               <h3>Buying vs selling pressure</h3>
-              <p class="muted small">Net flow as a share of normal turnover; return over the window in the table.</p>
+              <p class="muted small">Net buying or selling as a share of all trading in the selected range. Returns are in the table.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
@@ -213,7 +220,7 @@
       <div class="section-head">
         <div>
           <h2>Outlook: what history suggests</h2>
-          <p class="muted">Patterns from past selloffs and recent flows that are worth watching. History, not predictions, and not investment advice.</p>
+          <p class="muted">Patterns from past selloffs and recent flows that are worth watching. These cards always use the full history, whatever range is selected. History, not predictions, and not investment advice.</p>
         </div>
       </div>
       <div class="grid outlook" id="outlook-grid"></div>
@@ -253,7 +260,7 @@
           <header class="card-head">
             <div>
               <h3>One year of performance</h3>
-              <p class="muted small">One market per class, indexed to 100 a year ago.</p>
+              <p class="muted small">One market per class, indexed to 100 at the start of the selected range.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
@@ -306,6 +313,11 @@
             <li><strong>Treasury General Account</strong>: the government's cash at the Fed. A rising TGA drains liquidity from markets.</li>
             <li><strong>Fed net liquidity</strong>: Fed balance sheet minus TGA minus reverse repo, a popular gauge of liquidity available to markets.</li>
           </ul>
+          <h3>Date range</h3>
+          <p>The range bar under the menu (1W to All, or Custom dates) applies to every chart, table and the
+            changes shown on the headline tiles. Ranges inside the last three years use daily data; longer ones use
+            monthly totals. The "Right now" summary and the outlook cards always describe the present and the full
+            history, whatever range is selected.</p>
           <h3>History and replay</h3>
           <p>The history chart shows the same class-to-class flows week by week for three years, or month by
             month since 2017. Click any bar, pick a past selloff from the wheel's menu, or click a row in the
