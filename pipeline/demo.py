@@ -161,6 +161,8 @@ def generate(start="2016-01-01", end=None, seed=7):
     macro["NCBEILQ027S"] = _smooth_path(quarters, [(start, 25.0e6), ("2020-01-01", 35e6), ("2020-04-01", 30e6),
                                                    ("2021-10-01", 52e6), ("2022-10-01", 42e6), (end, 80e6)], rng, 0.01)
     macro["BOGZ1LM793164105Q"] = _smooth_path(quarters, [(start, 6.0e6), ("2020-04-01", 6.5e6), (end, 26e6)], rng, 0.01)
+    macro["HNOREMQ027S"] = _smooth_path(quarters, [(start, 25e6), ("2022-07-01", 41e6), ("2023-04-01", 40e6), (end, 48e6)], rng, 0.003)
+    macro["CSUSHPISA"] = _smooth_path(monthly, [(start, 180), ("2022-06-01", 305), ("2023-01-01", 296), (end, 335)], rng, 0.002)
     macro["NCBDBIQ027S"] = _smooth_path(quarters, [(start, 6.0e6), ("2021-01-01", 7.6e6), (end, 9.2e6)], rng, 0.002)
     macro["MVMTD027MNFRBDAL"] = _smooth_path(monthly, [(start, 13600), ("2020-06-01", 20500), ("2022-10-01", 22000),
                                                        (end, 29800)], rng, 0.002)
