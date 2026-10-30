@@ -223,6 +223,21 @@ def test_parse_ssga_nav_history_reads_only_the_table(tmp_path):
     assert an.fund_flows(df).iloc[-1] == pytest.approx(200 * 10.5)
 
 
+def test_mmf_flows_strip_out_interest():
+    months = pd.date_range("2024-01-31", periods=3, freq="ME")
+    assets = pd.Series([1000.0, 1010.0, 1005.0], index=months)
+    bill = pd.Series(6.0, index=pd.bdate_range("2024-01-01", "2024-03-29"))  # 0.5% a month
+    flows = an.mmf_flows(assets, bill)
+    assert flows.index.tolist() == list(months[1:])
+    assert flows.iloc[0] == pytest.approx(10 - 5.0)  # $10B growth, $5B of it interest
+    assert flows.iloc[1] == pytest.approx(-5 - 5.05)
+
+
+def test_parse_ofr_timeseries_in_billions():
+    s = sources.parse_ofr_timeseries([["2026-08-31", 8.5e12], ["2026-09-30", 8.4e12], ["2026-10-31", None]])
+    assert s.tolist() == [8500.0, 8400.0]
+
+
 def test_parse_cftc_nets_long_minus_short():
     rows = [{"report_date_as_yyyy_mm_dd": "2026-10-20T00:00:00.000", "open_interest_all": "100",
              "lev_money_positions_long": "30", "lev_money_positions_short": "50",
@@ -241,7 +256,8 @@ def test_demo_build_produces_complete_dashboard():
     assert data["regime"]["label"] in {"Risk-on", "Risk-off", "Neutral"}
     for key in ("stablecoins", "rrp", "net_liquidity", "retail_mmf"):
         assert data["cash"][key]
-    assert len(data["positioning"]) == 8 and set(data["rates"]) >= {"DGS10", "NFCI"}
+    assert len(data["positioning"]) == 8 and set(data["rates"]) >= {"DTB3", "DGS10", "NFCI"}
+    assert data["mmf_flows"] and data["cash"]["mmf_total"] and data["kpis"]["mmf_total_bn"]
     flows = {a["ticker"] for a in data["assets"] if a["flows"]}
     assert {"SPY", "GLD", "BIL", "STABLES"} <= flows and "QQQ" not in flows
     # Every class nets to zero once the sidelines are counted.

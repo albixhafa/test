@@ -210,6 +210,8 @@ section[id], article[id] { scroll-margin-top: 96px; }
 .grid { display: grid; gap: 12px; }
 .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.multiples { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+/* Six cards each: three across on wide screens so no card is left alone on a row. */
+@media (min-width: 861px) { #cash-grid, #rates-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .span-2 { grid-column: span 2; }
 
 .card {

@@ -24,8 +24,8 @@ funds, the Fed's reverse repo facility and the Treasury's cash account.
 | Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
 | Every selloff, every market | Peak-to-trough return of every market in every selloff, with cash-bucket changes in the table view |
 | Positioning | Where hedge funds and other speculators stand in S&P 500, Nasdaq, 10-year and long Treasury, dollar, bitcoin, gold and crude oil futures, as a percentile of three years, and their net position over time |
-| Dry powder | Stablecoin supply, retail money funds, reverse repo, TGA and Fed net liquidity, with selloffs shaded |
-| Rates and credit | 10-year yield, the 2s10s curve, the 10-year real yield, the high-yield spread and the Chicago Fed's financial conditions index |
+| Dry powder | Stablecoin supply, all money market funds (with estimated net flows after interest, also shown under the wheel for comparison with its sidelines), retail money funds, reverse repo, TGA and Fed net liquidity, with selloffs shaded |
+| Rates and credit | 3-month T-bill yield, 10-year yield, the 2s10s curve, the 10-year real yield, the high-yield spread and the Chicago Fed's financial conditions index |
 | Risk appetite | A composite z-score of equities, small caps vs large, high-yield vs Treasuries, bitcoin, the dollar and VIX |
 | Correlation to stocks | Is bitcoin, gold, Treasuries, the dollar or high yield still a hedge? |
 
@@ -62,9 +62,10 @@ Read both as a picture of rotation, not a ledger of who bought from whom.
 
 - **State Street**: daily NAV and shares outstanding for 20 SPDR funds (real fund flows)
 - **Yahoo Finance**: daily prices and volume for 26 ETFs and crypto pairs (Stooq as a fallback for ETFs)
+- **OFR** (Office of Financial Research): total US money market fund assets, monthly, from SEC Form N-MFP
 - **CFTC**: weekly Commitments of Traders (Traders in Financial Futures and Disaggregated reports)
 - **FRED**: `WALCL` (Fed balance sheet), `WTREGEN` (TGA), `RRPONTSYD` (reverse repo),
-  `RMFSL` (retail money funds), `M2SL`, `CPIAUCSL` (CPI), `DGS10`, `T10Y2Y`, `DFII10`,
+  `RMFSL` (retail money funds), `M2SL`, `CPIAUCSL` (CPI), `DTB3`, `DGS10`, `T10Y2Y`, `DFII10`,
   `BAMLH0A0HYM2` (high-yield spread; FRED keeps three years of it), `NFCI`
 - **DefiLlama**: total USD stablecoin supply
 

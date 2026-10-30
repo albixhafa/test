@@ -99,6 +99,7 @@ POSITIONING = [
 
 # Rates and credit backdrop from FRED: series id -> label and unit.
 RATES_SERIES = {
+    "DTB3": {"name": "3-month T-bill yield", "unit": "pct"},
     "DGS10": {"name": "10-year Treasury yield", "unit": "pct"},
     "T10Y2Y": {"name": "Yield curve (10y minus 2y)", "unit": "pct"},
     "DFII10": {"name": "10-year real yield", "unit": "pct"},

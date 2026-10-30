@@ -411,6 +411,7 @@ const INFO = {
   vix: "The market's expected swings in the S&P 500 over the next 30 days, priced from options. Around 12–20 is calm; above 30 is fear.",
   btc: "Bitcoin's price change over the past month. It tends to move with investors' appetite for risk.",
   stablecoins: "Crypto tokens pegged to the dollar, such as USDT and USDC. Their total supply is cash sitting on crypto rails, ready to buy.",
+  mmf_total: "Every US money market fund, retail and institutional, from the Treasury's Office of Financial Research (SEC filings, monthly, about a month behind). This is the biggest pool of cash on the sidelines. Its net flows are estimated as the change in assets minus the interest those assets earned at the T-bill rate.",
   retail_mmf: "Money market funds held by households: where savers park cash that isn't in stocks or bonds. A rising total is money on the sidelines.",
   net_liquidity: "The Federal Reserve's balance sheet minus the Treasury's cash account and the reverse repo facility. A rough gauge of cash available to markets; when it rises, asset prices tend to get support.",
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
@@ -514,11 +515,13 @@ function renderNow() {
   if (y10) {
     items.push(["Rates and credit: ", `the 10-year Treasury yields ${fmtRate(y10.v, "pct")} (${fmtRateChange(y10.chg, "pct")} in a month)${hy ? `, and junk bonds pay ${fmtRate(hy.v, "pct")} over Treasuries (${fmtRateChange(hy.chg, "pct")}${hy.chg > 0.25 ? ", lenders getting nervous" : hy.chg < -0.25 ? ", lenders relaxed" : ""})` : ""}.`]);
   }
-  const mmf = d.cash.retail_mmf;
+  const mmf = d.cash.mmf_total || d.cash.retail_mmf;
+  const flows = d.mmf_flows;
   if (mmf && mmf.length > 12) {
-    const now = mmf[mmf.length - 1][1];
-    const yearAgo = (mmf.find((x) => x[0] >= shiftDate(mmf[mmf.length - 1][0], -365)) || mmf[0])[1];
-    items.push(["Cash on the sidelines: ", `households hold ${fmtUsdBn(now)} in money funds, ${fmtUsdBn(now - yearAgo, true)} in a year${k.stablecoins_bn ? `, and stablecoins hold ${fmtUsdBn(k.stablecoins_bn)}` : ""}.`]);
+    const [asOf, now] = mmf[mmf.length - 1];
+    const year = flows ? flows.filter(([x]) => x > shiftDate(asOf, -365)).reduce((a, [, v]) => a + v, 0) : null;
+    const who = d.cash.mmf_total ? "money market funds hold" : "households hold";
+    items.push(["Cash on the sidelines: ", `${who} ${fmtUsdBn(now)} (${fmtMonth(asOf)})${year != null ? `, after ${fmtUsdBn(year, true)} of net new money in a year` : ""}${k.stablecoins_bn ? `, and stablecoins hold ${fmtUsdBn(k.stablecoins_bn)}` : ""}.`]);
   }
   const strong = Object.entries(d.regime.components)
     .filter(([name, z]) => z != null && Math.abs(z) >= 1.5 && SIGNAL_TEXT[name])
@@ -883,6 +886,7 @@ function renderWheel(t) {
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
   $("#wheel-headline").textContent = wheelHeadline(view);
+  $("#wheel-mmf").textContent = mmfNote(view);
   $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Real money into and out of State Street funds and stablecoins.${dollarsNote()}`;
   $("#wheel-sub").appendChild(infoButton("Where the flows come from", "flows"));
 
@@ -1769,7 +1773,7 @@ function renderHeatmap(t) {
     const i = state.data.selloffs.episodes.indexOf(e._src || e);
     if (state.data.selloffs.episodes[i].wheel) replay(episodeView(i));
   });
-  const cashKeys = [["stablecoins", "Stablecoins"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
+  const cashKeys = [["stablecoins", "Stablecoins"], ["mmf_total", "All MMF"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
   table(cardTable("heatmap"),
     ["Selloff", "S&P 500", ...tickers.filter((tk) => tk !== "SPY").map(shortName), ...cashKeys.map((c) => `Δ ${c[1]}`)],
     eps.map((e) => [
@@ -1908,6 +1912,13 @@ function renderOutlook() {
   const k = d.kpis;
   const c5 = outlookCard("Dry powder", "Cash parked on the sidelines is potential fuel for markets when sentiment turns.");
   const rows = [];
+  const all = d.cash.mmf_total;
+  const mf = d.mmf_flows;
+  if (all && mf && mf.length > 3) {
+    const [when, v] = all[all.length - 1];
+    const last3 = mf.slice(-3).reduce((a, [, x]) => a + x, 0);
+    rows.push({ name: "All money market funds", value: fmtUsdBn(v), why: `${fmtUsdBn(last3, true)} of net new money in the 3 months to ${fmtMonth(when)}: ${last3 >= 0 ? "cash still piling up" : "cash starting to leave"}` });
+  }
   const mmf = d.cash.retail_mmf;
   if (mmf && mmf.length > 12) {
     const last = mmf[mmf.length - 1];
@@ -1924,6 +1935,7 @@ function renderOutlook() {
 
 const CASH_PANELS = [
   { key: "stablecoins", title: "Stablecoin supply", note: "Crypto's cash pile" },
+  { key: "mmf_total", title: "All money market funds", note: "Households and companies" },
   { key: "retail_mmf", title: "Retail money funds", note: "Household cash parking" },
   { key: "rrp", title: "Overnight reverse repo", note: "Excess cash at the Fed" },
   { key: "tga", title: "Treasury General Account", note: "Rising drains liquidity" },
@@ -1960,6 +1972,44 @@ function cashDelta(pts, b = rangeBounds()) {
 function cashChartPoints(pts, b = rangeBounds()) {
   const r = pointsInRange(pts, b);
   return r.length >= 4 ? r : pts.filter((x) => x[0] <= b.end).slice(-6);
+}
+
+// Estimated net flows into all money market funds for the months that mostly fall
+// inside [start, end]; null when no reported month does.
+function mmfFlowFor(start, end) {
+  const f = state.data.mmf_flows;
+  if (!f || !f.length) return null;
+  const months = f.filter(([d]) => d >= shiftDate(start, 15) && d <= shiftDate(end, 15));
+  if (!months.length) return null;
+  return {
+    value: months.reduce((a, [d, v]) => a + v * deflator(d), 0),
+    from: months[0][0],
+    to: months[months.length - 1][0],
+  };
+}
+
+function monthSpan(from, to) {
+  return from === to ? fmtMonth(to) : `${fmtMonth(from)} – ${fmtMonth(to)}`;
+}
+
+// One line under the wheel tying its sidelines to measured cash: what money funds took in.
+function mmfNote(view) {
+  const f = state.data.mmf_flows;
+  if (!f || !f.length) return "";
+  const m = mmfFlowFor(view.start, view.end);
+  if (m) {
+    return `Measured cash for comparison: money market funds ${m.value >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(m.value))} in ${monthSpan(m.from, m.to)} (estimated, after interest).`;
+  }
+  // A short period in the past: use the reported months it overlaps.
+  const [d, v] = f[f.length - 1];
+  if (view.end <= d) {
+    const months = f.filter(([x]) => x >= view.start && shiftDate(x, -31) < view.end);
+    if (months.length) {
+      const total = months.reduce((a, [x, y]) => a + y * deflator(x), 0);
+      return `Measured cash for comparison: money market funds ${total >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(total))} in ${monthSpan(months[0][0], months[months.length - 1][0])}, the month${months.length > 1 ? "s" : ""} this period falls in (estimated, after interest).`;
+    }
+  }
+  return `Measured cash for comparison: money market funds ${v >= 0 ? "took in" : "lost"} ${fmtUsdBn(Math.abs(v * deflator(d)))} in ${fmtMonth(d)}, the latest month reported.`;
 }
 
 function renderCash(t) {
@@ -2024,6 +2074,7 @@ function shiftDate(iso, days) {
 // ---------- rates and credit ----------
 
 const RATE_NOTES = {
+  DTB3: "What cash earns",
   DGS10: "What the US government pays for 10 years",
   T10Y2Y: "Below zero is an inverted curve",
   DFII10: "10-year yield after expected inflation",
@@ -2072,7 +2123,7 @@ function renderRates(t) {
     const hi = Math.max(...pts.map((p) => p[1]));
     const zero = lo < 0 && hi > 0;
     // Narrow ranges need more decimals, or neighbouring ticks print the same.
-    const digits = hi - lo < 0.3 ? 2 : 1;
+    const digits = hi - lo < 0.05 ? 3 : hi - lo < 0.3 ? 2 : 1;
     chart(`chart-rate-${k}`).setOption({
       grid: { left: 44, right: 8, top: 10, bottom: 22 },
       tooltip: {

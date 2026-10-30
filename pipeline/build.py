@@ -69,6 +69,10 @@ def collect_live(log):
         except Exception as exc:  # noqa: BLE001
             log.append(f"FRED {sid}: no data ({exc})")
     try:
+        macro["MMF_TOTAL"] = sources.fetch_mmf_assets()
+    except Exception as exc:  # noqa: BLE001
+        log.append(f"OFR money market funds: no data ({exc})")
+    try:
         stable = sources.fetch_stablecoin_supply()
     except Exception as exc:  # noqa: BLE001
         stable = None
@@ -131,6 +135,7 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
         "tga": macro_bn.get("WTREGEN"),
         "net_liquidity": netliq,
         "retail_mmf": macro_bn.get("RMFSL"),
+        "mmf_total": macro.get("MMF_TOTAL"),
     }
 
     # Current rotation.
@@ -223,6 +228,8 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
     nl_now, nl_chg = last_change(netliq, 4)
     mmf = macro_bn.get("RMFSL")
     mmf_now, mmf_chg = last_change(mmf, 3)
+    # Money market funds: net new money each month, after stripping out interest.
+    mmf_flow = an.mmf_flows(macro["MMF_TOTAL"], macro.get("DTB3")) if "MMF_TOTAL" in macro else None
     kpis = {
         "spy_20d": windows["20"]["assets"][BENCHMARK]["ret"],
         "btc_20d": windows["20"]["assets"].get("BTC-USD", {}).get("ret"),
@@ -233,6 +240,7 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
         "net_liquidity_4w_bn": nl_chg,
         "retail_mmf_bn": mmf_now,
         "retail_mmf_3m_bn": mmf_chg,
+        "mmf_total_bn": an._num(macro["MMF_TOTAL"].iloc[-1], 2) if "MMF_TOTAL" in macro else None,
         "drawdown": an._num(close[BENCHMARK].iloc[-1] / close[BENCHMARK].iloc[-253:].max() - 1),
     }
 
@@ -276,6 +284,7 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
         "series": an.range_series(flow, panel["aum"][flow_tickers], close),
         "positioning": positioning,
         "rates": rates,
+        "mmf_flows": _series_points(mmf_flow[mmf_flow.index >= "2016-01-01"], 1) if mmf_flow is not None else None,
         "streaks": streaks,
         "selloffs": {
             "threshold": SELLOFF_THRESHOLD,

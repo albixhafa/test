@@ -193,3 +193,16 @@ def fetch_cftc(report, code, start):
     if not rows:
         raise ValueError(f"no CFTC rows for {code}")
     return parse_cftc(rows, report)
+
+
+def parse_ofr_timeseries(rows):
+    """OFR API [[date, value], ...] -> Series in USD billions."""
+    s = pd.Series({pd.Timestamp(d): float(v) for d, v in rows if v is not None}, dtype="float64").sort_index() / 1e9
+    s.index.name = "date"
+    return s
+
+
+def fetch_mmf_assets():
+    """Total US money market fund assets, monthly, in USD billions (OFR, from SEC Form N-MFP)."""
+    rows = _get("https://data.financialresearch.gov/v1/series/timeseries", {"mnemonic": "MMF-MMF_TOT-M"}).json()
+    return parse_ofr_timeseries(rows)
