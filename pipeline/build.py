@@ -13,8 +13,9 @@ from pathlib import Path
 import pandas as pd
 
 from . import analytics as an
-from .config import (ASSETS, BALANCE_GROUP, BENCHMARK, FLOW_WINDOWS, FRED_SERIES, GROUPS,
-                     HISTORY_START, POSITIONING, RATES_SERIES, REBOUND_DAYS, SELLOFF_THRESHOLD, VIX)
+from .config import (ASSETS, BALANCE_GROUP, BENCHMARK, BTC_SUPPLY, ETH_SUPPLY, FLOW_WINDOWS, FRED_SERIES,
+                     GOLD_TONNES, GROUPS, HISTORY_START, POOL_SERIES, POSITIONING, RATES_SERIES, REBOUND_DAYS,
+                     SELLOFF_THRESHOLD, VIX)
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "docs" / "data" / "dashboard.json"
 
@@ -62,8 +63,14 @@ def collect_live(log):
         except Exception as exc:  # noqa: BLE001
             log.append(f"{asset.ticker}: no fund flow data ({exc})")
 
+    try:
+        gold_px = sources.fetch_yahoo("GC=F", HISTORY_START)["close"]
+    except Exception as exc:  # noqa: BLE001 - the pools fall back to GLD
+        gold_px = None
+        log.append(f"Gold price: no data ({exc})")
+
     macro = {}
-    for sid in [*FRED_SERIES, *RATES_SERIES]:
+    for sid in [*FRED_SERIES, *RATES_SERIES, *POOL_SERIES]:
         try:
             macro[sid] = sources.fetch_fred(sid, HISTORY_START)
         except Exception as exc:  # noqa: BLE001
@@ -84,7 +91,8 @@ def collect_live(log):
             cftc[p["key"]] = sources.fetch_cftc(p["report"], p["code"], HISTORY_START)
         except Exception as exc:  # noqa: BLE001
             log.append(f"CFTC {p['name']}: no data ({exc})")
-    return {"prices": prices, "vix": vix, "macro": macro, "stable": stable, "funds": funds, "cftc": cftc}
+    return {"prices": prices, "vix": vix, "macro": macro, "stable": stable, "funds": funds, "cftc": cftc,
+            "gold_px": gold_px}
 
 
 def _series_points(s, digits=2):
@@ -98,7 +106,61 @@ def _weekly_points(s, digits):
     return _series_points(s.groupby(pd.Grouper(freq="W-FRI")).tail(1), digits)
 
 
-def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=None):
+def _month_start_to_end(s):
+    """FRED dates monthly and quarterly values at the start of the period; move them to its end."""
+    s = s.dropna().copy()
+    if len(s) > 2 and (s.index[1:] - s.index[:-1]).days.min() > 80:
+        s.index = s.index + pd.offsets.QuarterEnd(0)
+    else:
+        s.index = s.index + pd.offsets.MonthEnd(0)
+    return s
+
+
+def build_pools(close, macro, stable, gold_px, as_of):
+    """Money held in each asset class at each month end since 2017, in USD billions.
+
+    Estimates, documented on the page: stocks from the Financial Accounts carried by the
+    S&P 500; bonds as Treasuries at market value plus companies' bonds; cash as M2; gold
+    as tonnes ever mined times the price; crypto as coins in circulation times prices plus
+    stablecoins. A class with a missing source is left out.
+    """
+    days = close.index[close.index >= "2017-01-01"]
+    dates = pd.DatetimeIndex(days.to_series().groupby(days.to_period("M")).max().values)
+    asof = lambda s: s.reindex(dates.union(s.index)).ffill().reindex(dates)  # noqa: E731
+    have = lambda *ids: all(i in macro and not macro[i].empty for i in ids)  # noqa: E731
+    pools = {}
+    if have("NCBEILQ027S") and "SPY" in close:
+        eq = _month_start_to_end(macro["NCBEILQ027S"] * POOL_SERIES["NCBEILQ027S"])
+        if have("BOGZ1LM793164105Q"):
+            eq = eq.add(_month_start_to_end(macro["BOGZ1LM793164105Q"] * POOL_SERIES["BOGZ1LM793164105Q"]), fill_value=0)
+        pools["Stocks"] = an.anchored_monthly(eq, close["SPY"], dates)
+    if have("MVMTD027MNFRBDAL"):
+        bonds = asof(_month_start_to_end(macro["MVMTD027MNFRBDAL"] * POOL_SERIES["MVMTD027MNFRBDAL"]))
+        if have("NCBDBIQ027S"):
+            bonds = bonds + asof(_month_start_to_end(macro["NCBDBIQ027S"] * POOL_SERIES["NCBDBIQ027S"])).fillna(0)
+        pools["Bonds"] = bonds
+    if have("M2SL"):
+        pools["Cash"] = asof(_month_start_to_end(macro["M2SL"]))
+    gold = gold_px if gold_px is not None and not gold_px.empty else (close["GLD"] * 10.75 if "GLD" in close else None)
+    if gold is not None:
+        pools["Gold & commodities"] = an.knot_path(GOLD_TONNES, dates) * 32150.7466 * asof(gold) / 1e9
+    if {"BTC-USD", "ETH-USD"} <= set(close.columns):
+        coins = (asof(close["BTC-USD"]) * an.knot_path(BTC_SUPPLY, dates)).fillna(0) + \
+                (asof(close["ETH-USD"]) * an.knot_path(ETH_SUPPLY, dates)).fillna(0)
+        pools["Crypto"] = coins / 1e9 + (asof(stable).fillna(0) if stable is not None else 0)
+    if len(pools) < 3:
+        return None
+    order = [g for g in GROUPS if g in pools]
+    last = pd.Timestamp(as_of)
+    return {
+        "dates": [d.strftime("%Y-%m-%d") for d in dates],
+        "values": {g: [an._num(v, 1) for v in pools[g]] for g in order},
+        # More trading days are still to come in the latest month.
+        "partial": bool((last + pd.offsets.BDay(1)).month == last.month),
+    }
+
+
+def build(prices, vix, macro, stable, funds=None, cftc=None, gold_px=None, demo=False, log=None):
     log = log or []
     funds, cftc = funds or {}, cftc or {}
     if BENCHMARK not in prices:
@@ -302,6 +364,7 @@ def build(prices, vix, macro, stable, funds=None, cftc=None, demo=False, log=Non
         "series": an.range_series(flow, panel["aum"][flow_tickers], close),
         "positioning": positioning,
         "rates": rates,
+        "pools": build_pools(close, macro, stable, gold_px, calendar[-1]),
         "mmf_flows": _series_points(mmf_flow[mmf_flow.index >= "2016-01-01"], 1) if mmf_flow is not None else None,
         "streaks": streaks,
         "selloffs": {
