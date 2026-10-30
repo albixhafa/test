@@ -47,9 +47,46 @@ function fmtPct(x, digits = 1, signed = true) {
 function fmtUsdBn(x, signed = false) {
   if (x == null || !isFinite(x)) return "–";
   const abs = Math.abs(x);
-  const body = abs >= 1000 ? `$${(abs / 1000).toFixed(2)}T` : abs >= 10 ? `$${abs.toFixed(0)}B` : `$${abs.toFixed(1)}B`;
+  // Thresholds sit at the rounding boundaries so 999.7 reads $1.00T, never $1000B.
+  const body = abs >= 999.5 ? `$${(abs / 1000).toFixed(2)}T` : abs >= 9.95 ? `$${abs.toFixed(0)}B` : `$${abs.toFixed(1)}B`;
   if (x < 0) return MINUS + body;
   return (signed && x > 0 ? "+" : "") + body;
+}
+
+// Axis ticks: no trailing zeros ($1.5T, $500B, $0).
+function fmtAxisUsd(v) {
+  if (!v) return "$0";
+  const abs = Math.abs(v);
+  const body = abs >= 1000 ? `$${Number((abs / 1000).toFixed(2))}T` : `$${Number(abs.toFixed(1))}B`;
+  return v < 0 ? MINUS + body : body;
+}
+
+function parseDay(iso) {
+  return new Date(`${iso}T00:00:00Z`);
+}
+
+function fmtDate(iso, withYear = true) {
+  if (!iso) return "–";
+  return parseDay(iso).toLocaleDateString(undefined, {
+    month: "short", day: "numeric", year: withYear ? "numeric" : undefined, timeZone: "UTC",
+  });
+}
+
+function fmtMonth(iso) {
+  return parseDay(iso).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function fmtRange(a, b) {
+  const sameYear = a.slice(0, 4) === b.slice(0, 4);
+  return `${fmtDate(a, !sameYear)} – ${fmtDate(b)}`;
+}
+
+function shortName(ticker) {
+  return state.assets[ticker] ? state.assets[ticker].short || state.assets[ticker].name : ticker;
+}
+
+function narrowScreen() {
+  return window.innerWidth < 560;
 }
 
 function fmtNum(x, digits = 2, signed = false) {
@@ -293,7 +330,7 @@ function renderWheel(t) {
   const into = (i) => d3.sum(matrix, (row) => row[i]);
 
   $("#wheel-headline").textContent = wheelHeadline(wheel, state.window);
-  $("#wheel-sub").textContent = `${w.start} to ${w.end}. Estimated from price and volume, not reported fund flows.`;
+  $("#wheel-sub").textContent = `${fmtRange(w.start, w.end)}. Estimated from price and volume, not reported fund flows.`;
 
   // Side list: net per class, biggest inflow first.
   const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
@@ -535,7 +572,7 @@ function renderSankey(t) {
   const w = state.data.windows[state.window];
   const sk = w.sankey;
   $("#sankey-sub").textContent =
-    `${w.start} to ${w.end}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.`;
+    `${fmtRange(w.start, w.end)}. ${fmtUsdBn(sk.total_out_bn)} estimated selling, ${fmtUsdBn(sk.total_in_bn)} estimated buying.`;
   const ids = new Set();
   sk.links.forEach((l) => { ids.add(l.source); ids.add(l.target); });
   const nodeTotals = {};
@@ -600,14 +637,58 @@ function renderSankey(t) {
       .map((l) => [assetName(l.source), assetName(l.target), fmtUsdBn(l.value)]));
 }
 
+// Horizontal bar value axis: padded so end labels have room, with a tick step chosen
+// from the data so phones get three or four ticks instead of a crowded row.
+function barValueAxis(t, values) {
+  const lo = Math.min(0, ...values);
+  const hi = Math.max(0, ...values);
+  const target = narrowScreen() ? 3 : 5;
+  const raw = (hi - lo) / target || 0.01;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= raw);
+  return {
+    type: "value",
+    boundaryGap: ["12%", "12%"],
+    interval: step,
+    ...axisStyle(t),
+    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: (v) => fmtPct(v, 0) },
+  };
+}
+
+// Bar value labels: outside the bar end, except long negative bars, where the label sits
+// inside the bar (white on the fill) so it can't run into the category names.
+function barLabel(t, values, digits) {
+  const maxAbs = Math.max(...values.map(Math.abs)) || 1;
+  return (v) => {
+    const inside = v < 0 && Math.abs(v) / maxAbs > 0.45;
+    return {
+      show: true,
+      position: inside ? "insideLeft" : v < 0 ? "left" : "right",
+      color: inside ? "#ffffff" : t.text2,
+      fontSize: 11,
+      formatter: () => fmtPct(v, digits),
+    };
+  };
+}
+
+function barGrid() {
+  return { left: 8, right: 48, top: 8, bottom: 28, containLabel: true };
+}
+
+function barCategoryName(ticker) {
+  return narrowScreen() ? shortName(ticker) : assetName(ticker);
+}
+
 function renderIntensity(t) {
   const w = state.data.windows[state.window];
   const rows = Object.entries(w.assets)
     .filter(([, v]) => v.intensity != null)
     .sort((a, b) => a[1].intensity - b[1].intensity);
+  const vals = rows.map(([, v]) => v.intensity);
+  const intensityLabel = barLabel(t, vals, 0);
   const c = chart("chart-intensity");
   c.setOption({
-    grid: { left: 120, right: 56, top: 8, bottom: 28 },
+    grid: barGrid(),
     tooltip: {
       ...tooltipBase(t),
       trigger: "item",
@@ -620,10 +701,10 @@ function renderIntensity(t) {
           row("Volume vs normal", `${fmtNum(v.volume_ratio, 2)}×`);
       },
     },
-    xAxis: { type: "value", ...axisStyle(t), axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPct(v, 0) } },
+    xAxis: barValueAxis(t, vals),
     yAxis: {
       type: "category",
-      data: rows.map(([k]) => assetName(k)),
+      data: rows.map(([k]) => barCategoryName(k)),
       ...axisStyle(t),
       axisLabel: { color: t.text2, fontSize: 12 },
       splitLine: { show: false },
@@ -633,19 +714,12 @@ function renderIntensity(t) {
       barWidth: "60%",
       data: rows.map(([, v]) => ({
         value: v.intensity,
+        label: intensityLabel(v.intensity),
         itemStyle: {
           color: v.intensity >= 0 ? t.pos : t.neg,
           borderRadius: v.intensity >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4],
         },
       })),
-      label: {
-        show: true,
-        position: "right",
-        color: t.text2,
-        fontSize: 11,
-        formatter: (p) => fmtPct(p.value, 0),
-      },
-      labelLayout: (p) => (rows[p.dataIndex][1].intensity < 0 ? { x: p.rect.x - 4, align: "right" } : {}),
     }],
   }, true);
   table(cardTable("intensity"), ["Market", "Net pressure", "Est. net flow", "Return", "Volume vs normal"],
@@ -664,9 +738,11 @@ function renderPlaybook(t) {
     "What rose while stocks fell is where sellers' money went.";
   $("#threshold-text").textContent = `${Math.round(s.threshold * 100)}%`;
   const rows = s.playbook.slice().reverse();
+  const vals = rows.map((r) => r.median_ret);
+  const playbookLabel = barLabel(t, vals, 1);
   const c = chart("chart-playbook");
   c.setOption({
-    grid: { left: 120, right: 56, top: 8, bottom: 28 },
+    grid: barGrid(),
     tooltip: {
       ...tooltipBase(t),
       trigger: "item",
@@ -679,10 +755,10 @@ function renderPlaybook(t) {
           row("Volume vs normal", `${fmtNum(r.median_volume_ratio, 2)}×`);
       },
     },
-    xAxis: { type: "value", ...axisStyle(t), axisLabel: { color: t.muted, fontSize: 11, formatter: (v) => fmtPct(v, 0) } },
+    xAxis: barValueAxis(t, vals),
     yAxis: {
       type: "category",
-      data: rows.map((r) => assetName(r.ticker)),
+      data: rows.map((r) => barCategoryName(r.ticker)),
       ...axisStyle(t),
       axisLabel: { color: t.text2, fontSize: 12 },
       splitLine: { show: false },
@@ -692,10 +768,9 @@ function renderPlaybook(t) {
       barWidth: "60%",
       data: rows.map((r) => ({
         value: r.median_ret,
+        label: playbookLabel(r.median_ret),
         itemStyle: { color: r.median_ret >= 0 ? t.pos : t.neg, borderRadius: r.median_ret >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] },
       })),
-      label: { show: true, position: "right", color: t.text2, fontSize: 11, formatter: (p) => fmtPct(p.value, 1) },
-      labelLayout: (p) => (rows[p.dataIndex].median_ret < 0 ? { x: p.rect.x - 4, align: "right" } : {}),
     }],
   }, true);
   table(cardTable("playbook"), ["Market", "Median return", "Rose in", `Next ${s.rebound_days}d`, "Volume vs normal"],
@@ -716,7 +791,7 @@ function renderHeatmap(t) {
     const v = e.assets[tk] ? e.assets[tk].ret : null;
     data.push([x, y, v == null ? "-" : v]);
   }));
-  const label = (e) => `${e.peak.slice(0, 7)}  ${fmtPct(e.drawdown, 0)}${e.ongoing ? " · now" : ""}`;
+  const label = (e) => `${fmtMonth(e.peak)}  ${fmtPct(e.drawdown, 0)}${e.ongoing ? " · now" : ""}`;
   const c = chart("chart-heatmap");
   c.resize();
   c.setOption({
@@ -729,7 +804,7 @@ function renderHeatmap(t) {
         const tk = tickers[p.data[0]];
         const a = e.assets[tk];
         if (!a || a.ret == null) return `${esc(assetName(tk))}: no data`;
-        return `<div style="margin-bottom:4px">${esc(assetName(tk))} · ${esc(e.peak)} → ${esc(e.trough)}${e.ongoing ? " (ongoing)" : ""}</div>` +
+        return `<div style="margin-bottom:4px">${esc(assetName(tk))} · ${esc(fmtRange(e.peak, e.trough))}${e.ongoing ? " (ongoing)" : ""}</div>` +
           row("Return", fmtPct(a.ret)) +
           row("S&P 500", fmtPct(e.drawdown)) +
           row("Est. net flow", fmtUsdBn(a.net_flow_bn, true)) +
@@ -739,10 +814,10 @@ function renderHeatmap(t) {
     },
     xAxis: {
       type: "category",
-      data: tickers.map((tk) => tk.replace("-USD", "")),
+      data: tickers.map(shortName),
       ...axisStyle(t),
       axisLine: { show: false },
-      axisLabel: { color: t.text2, fontSize: 11, rotate: 45, interval: 0 },
+      axisLabel: { color: t.text2, fontSize: narrowScreen() ? 10 : 11, rotate: narrowScreen() ? 90 : 45, interval: 0 },
       splitLine: { show: false },
     },
     yAxis: {
@@ -777,9 +852,9 @@ function renderHeatmap(t) {
   }, true);
   const cashKeys = [["stablecoins", "Stablecoins"], ["retail_mmf", "Retail MMF"], ["rrp", "Reverse repo"], ["net_liquidity", "Net liquidity"]];
   table(cardTable("heatmap"),
-    ["Selloff", "S&P 500", ...tickers.filter((tk) => tk !== "SPY").map((tk) => tk.replace("-USD", "")), ...cashKeys.map((c) => `Δ ${c[1]}`)],
+    ["Selloff", "S&P 500", ...tickers.filter((tk) => tk !== "SPY").map(shortName), ...cashKeys.map((c) => `Δ ${c[1]}`)],
     eps.map((e) => [
-      `${e.peak} → ${e.trough}${e.ongoing ? " (ongoing)" : ""}`,
+      `${fmtRange(e.peak, e.trough)}${e.ongoing ? " (ongoing)" : ""}`,
       fmtPct(e.drawdown),
       ...tickers.filter((tk) => tk !== "SPY").map((tk) => fmtPct(e.assets[tk] && e.assets[tk].ret)),
       ...cashKeys.map(([k]) => fmtUsdBn(e.cash[k], true)),
@@ -822,7 +897,7 @@ function renderCash(t) {
         ...tooltipBase(t),
         trigger: "axis",
         axisPointer: { type: "line", lineStyle: { color: t.axis } },
-        formatter: (ps) => `<div style="margin-bottom:4px">${esc(ps[0].data[0])}</div>` + row(p.title, fmtUsdBn(ps[0].data[1]), t.groups[0]),
+        formatter: (ps) => `<div style="margin-bottom:4px">${esc(fmtDate(ps[0].data[0]))}</div>` + row(p.title, fmtUsdBn(ps[0].data[1]), t.groups[0]),
       },
       xAxis: { type: "time", ...axisStyle(t), splitLine: { show: false }, axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true } },
       yAxis: {
@@ -831,7 +906,7 @@ function renderCash(t) {
         splitNumber: 3,
         ...axisStyle(t),
         axisLine: { show: false },
-        axisLabel: { color: t.muted, fontSize: 10, formatter: (v) => fmtUsdBn(v).replace(".00T", "T") },
+        axisLabel: { color: t.muted, fontSize: 10, formatter: fmtAxisUsd },
       },
       series: [{
         type: "line",
@@ -871,7 +946,7 @@ function lineOptions(t, { series, yFormatter, yMin, yMax, valueFormatter }) {
       axisPointer: { type: "line", lineStyle: { color: t.axis } },
       formatter: (ps) => {
         const sorted = ps.filter((p) => p.data[1] != null).sort((a, b) => b.data[1] - a.data[1]);
-        return `<div style="margin-bottom:4px">${esc(ps[0].data[0])}</div>` +
+        return `<div style="margin-bottom:4px">${esc(fmtDate(ps[0].data[0]))}</div>` +
           sorted.map((p) => row(p.seriesName, valueFormatter(p.data[1]), p.color)).join("");
       },
     },
@@ -909,7 +984,7 @@ function renderRegime(t) {
           silent: true,
           symbol: "none",
           lineStyle: { color: t.axis, type: "solid", width: 1 },
-          label: { color: t.muted, fontSize: 11, position: "insideStartTop" },
+          label: { color: t.muted, fontSize: 11, position: "end" },
           data: [{ yAxis: 0.5, label: { formatter: "Risk-on" } }, { yAxis: -0.5, label: { formatter: "Risk-off" } }],
         },
       })],
@@ -917,7 +992,7 @@ function renderRegime(t) {
       valueFormatter: (v) => fmtNum(v, 2, true),
     }),
     legend: { show: false },
-    grid: { left: 40, right: 16, top: 12, bottom: 28 },
+    grid: { left: 40, right: 64, top: 12, bottom: 28 },
   }, true);
   const ul = $("#regime-components");
   ul.replaceChildren();
@@ -941,7 +1016,7 @@ function renderRegime(t) {
     ul.appendChild(li);
   });
   table(cardTable("regime"), ["Date", "Score", "Regime"],
-    hist.slice().reverse().filter((_, i) => i % 5 === 0).map(([d, v]) => [d, fmtNum(v, 2, true), v >= 0.5 ? "Risk-on" : v <= -0.5 ? "Risk-off" : "Neutral"]));
+    hist.slice().reverse().filter((_, i) => i % 5 === 0).map(([d, v]) => [fmtDate(d), fmtNum(v, 2, true), v >= 0.5 ? "Risk-on" : v <= -0.5 ? "Risk-off" : "Neutral"]));
 }
 
 function renderPerformance(t) {
@@ -954,7 +1029,7 @@ function renderPerformance(t) {
   }), true);
   const step = 5;
   table(cardTable("performance"), ["Date", ...tickers.map(assetName)],
-    p.dates.map((d, i) => [d, ...tickers.map((tk) => (p.series[tk][i] == null ? "–" : p.series[tk][i].toFixed(1)))])
+    p.dates.map((d, i) => [fmtDate(d), ...tickers.map((tk) => (p.series[tk][i] == null ? "–" : p.series[tk][i].toFixed(1)))])
       .filter((_, i, arr) => (arr.length - 1 - i) % step === 0).reverse());
 }
 
@@ -971,7 +1046,7 @@ function renderCorrelation(t) {
     valueFormatter: (v) => fmtNum(v, 2, true),
   }), true);
   table(cardTable("correlation"), ["Date", ...tickers.map(assetName)],
-    c.dates.map((d, i) => [d, ...tickers.map((tk) => fmtNum(c.series[tk][i], 2, true))]).reverse());
+    c.dates.map((d, i) => [fmtDate(d), ...tickers.map((tk) => fmtNum(c.series[tk][i], 2, true))]).reverse());
 }
 
 // ---------- orchestration ----------
@@ -1119,7 +1194,7 @@ async function main() {
   if (saved && data.windows[saved]) state.window = saved;
 
   $("#demo-banner").hidden = !data.meta.demo;
-  $("#asof").textContent = `Data as of ${data.meta.as_of}`;
+  $("#asof").textContent = `Data through ${fmtDate(data.meta.as_of)}`;
   if (data.meta.warnings && data.meta.warnings.length) {
     const b = $("#warnings");
     b.hidden = false;

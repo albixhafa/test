@@ -169,7 +169,8 @@ def build(prices, vix, macro, stable, demo=False, log=None):
             "benchmark": BENCHMARK,
         },
         "groups": GROUPS,
-        "assets": [{"ticker": a.ticker, "name": a.name, "group": a.group} for a in ASSETS if a.ticker in prices],
+        "assets": [{"ticker": a.ticker, "name": a.name, "short": a.short or a.name, "group": a.group}
+                   for a in ASSETS if a.ticker in prices],
         "kpis": kpis,
         "regime": regime,
         "windows": windows,
