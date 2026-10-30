@@ -189,11 +189,6 @@ select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-w
 .small { font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .controls { display: flex; gap: 8px; flex-wrap: wrap; }
-.replay-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 4px 0 8px; padding: 8px 12px; border-radius: 10px;
-  background: var(--banner); border: 1px solid var(--banner-border); font-size: 14px;
-}
 .section > .card + .card { margin-top: 16px; }
 .card .chart#chart-history { height: 380px; }
 
@@ -244,7 +239,6 @@ select.ghost { font: inherit; font-size: 13px; background: var(--surface); max-w
 .bd-note { font-size: 12px; color: var(--text-secondary); }
 .spark-cell { width: 92px; }
 .spark { display: block; margin-left: auto; }
-.bd-table .csv { margin-top: 8px; }
 .bd-detail-title { margin: 16px 0 4px; }
 .card .chart#chart-bd-cash, .card .chart#chart-bd-rates, .card .chart#chart-bd-risk, .card .chart#chart-positions { height: 260px; }
 .pct-cell { min-width: 150px; }
@@ -333,7 +327,6 @@ details.method[open] > summary h2::before { content: "▾ "; }
 .tip .tip-text { color: var(--text-secondary); line-height: 1.45; }
 
 .table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
-.table-wrap .csv { margin: 0 0 8px; }
 .freshness { margin: 0 0 12px; }
 .freshness .late { color: var(--neg); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
