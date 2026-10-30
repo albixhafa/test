@@ -177,6 +177,43 @@ button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; 
 .card.mini .chart { height: 150px; }
 .mini .figure { font-size: 22px; font-weight: 600; margin-top: 2px; }
 
+.wheel-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: center; }
+.card .chart.wheel { height: auto; min-height: 320px; display: flex; justify-content: center; }
+.chart.wheel svg { display: block; overflow: visible; }
+.wheel-side h4 { margin: 0 0 8px; font-weight: 600; }
+.wheel-side > p { margin-top: 14px; }
+.wheel-classes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wheel-classes li { display: grid; grid-template-columns: 12px 1fr 90px 64px; align-items: center; gap: 8px; font-size: 13px; }
+.wheel-classes .key { width: 12px; height: 12px; border-radius: 3px; }
+.wheel-classes .bar { position: relative; height: 6px; background: var(--grid); border-radius: 3px; }
+.wheel-classes .bar span { position: absolute; top: 0; height: 6px; border-radius: 3px; }
+.wheel-classes .num { text-align: right; font-variant-numeric: tabular-nums; }
+.wheel .arc { cursor: pointer; outline: none; }
+.wheel .arc:focus-visible path { stroke: var(--text-primary); stroke-width: 2px; }
+.wheel .ribbon, .wheel .arc { transition: opacity 150ms ease; }
+@media (prefers-reduced-motion: no-preference) {
+  .wheel .ribbon { animation: ribbon-in 600ms ease-out both; }
+  @keyframes ribbon-in { from { opacity: 0; } to { opacity: 1; } }
+}
+
+.tip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 180px;
+  max-width: 280px;
+}
+.tip .tip-title { margin-bottom: 4px; }
+.tip .tip-row { display: flex; justify-content: space-between; gap: 16px; }
+.tip .tip-row span { color: var(--text-secondary); }
+
 .table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -196,6 +233,7 @@ th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; b
 .foot { padding-top: 24px; padding-bottom: 32px; }
 
 @media (max-width: 860px) {
+  .wheel-layout { grid-template-columns: minmax(0, 1fr); }
   .grid.two { grid-template-columns: minmax(0, 1fr); }
   .span-2 { grid-column: auto; }
   .card .chart.tall { height: 520px; }

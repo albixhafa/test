@@ -12,6 +12,7 @@ Treasury's cash account.
 | Panel | Question it answers |
 |---|---|
 | Headline tiles | Risk-on or risk-off right now? How much dry powder is sitting in cash? |
+| Liquidity wheel | A circle of all the money moving between stocks, bonds, cash, gold & commodities, crypto and the dollar, with the total in the middle |
 | Rotation map (Sankey) | Over the last week, month or quarter, which markets saw net selling and where did that pressure go? |
 | Buying vs selling pressure | Net flow per market as a share of its normal turnover |
 | Selloff playbook | Across every S&P 500 selloff of 7%+ since 2016, what rose while stocks fell? |
@@ -29,7 +30,8 @@ changes is who holds what. True fund flows (ETF creations and redemptions, money
 subscriptions) mostly sit behind paid data, so this dashboard estimates flow pressure
 with Chaikin money flow (each day's dollar volume, signed by where the close landed in the
 day's range). The rotation map splits each net outflow across net inflows in proportion to
-size and routes any imbalance through a *Cash & sidelines* node. Read it as pressure, not
+size and routes any imbalance through a *Cash & sidelines* node. The liquidity wheel does the
+same at the asset-class level, with cash as the balancing account. Read both as pressure, not
 as a ledger of who bought from whom.
 
 ## Data sources (all free, no API keys)
@@ -73,7 +75,7 @@ pipeline/
   analytics.py  money flow, rotation allocation, selloff detection, risk score
   demo.py       synthetic data generator
   build.py      CLI that writes docs/data/dashboard.json
-docs/           static site (index.html, app.js, styles.css; ECharts from cdnjs)
+docs/           static site (index.html, app.js, styles.css; ECharts and D3 in docs/vendor)
 tests/          pytest suite
 ```
 

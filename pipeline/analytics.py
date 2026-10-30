@@ -106,6 +106,30 @@ def allocate_flows(net, min_share=0.002):
     }
 
 
+def class_flows(asset_net, asset_group, groups, cash_group):
+    """Net flow per asset class and the class-to-class links for the liquidity wheel.
+
+    Asset flows are summed within each class, so rotation inside a class (S&P 500 into
+    utilities, say) cancels out. Cash is the balancing account: its net is minus the
+    sum of every other class, so the wheel always balances and money that left the
+    tracked markets shows up as flowing into cash.
+    """
+    net = {g: 0.0 for g in groups}
+    for ticker, value in asset_net.items():
+        group = asset_group.get(ticker)
+        if value is None or group is None or group == cash_group:
+            continue
+        net[group] += value
+    net[cash_group] = -sum(v for g, v in net.items() if g != cash_group)
+    alloc = allocate_flows(net)
+    links = [l for l in alloc["links"] if CASH_NODE not in (l["source"], l["target"])]
+    return {
+        "net": {g: round(v, 4) for g, v in net.items()},
+        "links": links,
+        "total_bn": round(sum(l["value"] for l in links), 4),
+    }
+
+
 def find_selloffs(close, threshold):
     """Zig-zag swing detection: peak-to-trough falls of at least `threshold`.
 
