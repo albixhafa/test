@@ -9,7 +9,6 @@
   <!-- Self-hosted so the charts never depend on a third-party CDN being reachable. -->
   <!-- Deferred so the page lays out before the chart libraries finish loading; order is kept. -->
   <script defer src="vendor/echarts-5.5.1.min.js"></script>
-  <script defer src="vendor/d3-7.9.0.min.js"></script>
 </head>
 <body>
   <header class="top">
@@ -79,54 +78,46 @@
       <article class="card tabbed" data-tabs="flows">
         <div class="card-tabs">
           <div class="tabs" role="tablist" aria-label="Flow views">
-            <button type="button" role="tab" data-tab="wheel">Wheel</button>
-            <button type="button" role="tab" data-tab="funds">Funds</button>
+            <button type="button" role="tab" data-tab="classes">Classes</button>
+            <button type="button" role="tab" data-tab="map">Map</button>
             <button type="button" role="tab" data-tab="quadrant">Vs returns</button>
           </div>
           <button type="button" class="ghost small table-toggle">Table</button>
         </div>
 
-        <div class="panel" data-panel="wheel" data-card="wheel" role="tabpanel">
+        <div class="panel" data-panel="classes" data-card="classes" data-title="Flows by class" role="tabpanel">
           <header class="card-head">
             <div>
-              <h3 id="wheel-headline"></h3>
-              <p class="muted small" id="wheel-sub"></p>
+              <h3 id="classes-headline"></h3>
+              <p class="muted small" id="classes-sub"></p>
             </div>
             <div class="card-actions">
-              <label class="visually-hidden" for="replay-select">Replay a past period</label>
+              <label class="visually-hidden" for="replay-select">Show a past period</label>
               <select id="replay-select" class="ghost small"></select>
-              <button type="button" class="ghost small" id="flow-toggle">Pause flow</button>
             </div>
           </header>
           <div class="replay-bar" id="replay-bar" hidden>
             <span id="replay-text"></span>
             <button type="button" class="ghost small" id="replay-exit">Back to the range</button>
           </div>
-          <div class="wheel-layout">
-            <div class="chart wheel" id="chart-wheel"></div>
-            <div class="wheel-side">
-              <h4 class="small muted">Net in and out, by class</h4>
-              <ul class="wheel-classes" id="wheel-classes"></ul>
-              <p class="muted small" id="wheel-mmf"></p>
-              <p class="muted small">Ribbons point from where money left to where it went. Hover or tap a class to trace it.
-                The sidelines are money entering the tracked funds from outside, or leaving them altogether.</p>
-            </div>
+          <div class="chart classes-view" id="chart-classes">
+            <p class="classes-total" id="classes-total"></p>
+            <ul class="class-bars" id="class-bars"></ul>
+            <p class="muted small" id="classes-mmf"></p>
+            <p class="muted small">Bars to the right are money coming in, to the left money going out. Tap a class to see its funds, and a fund for its price and flows.</p>
           </div>
           <div class="table-wrap"></div>
         </div>
 
-        <div class="panel" data-panel="funds" data-card="intensity" role="tabpanel" hidden>
+        <div class="panel" data-panel="map" data-card="map" role="tabpanel" hidden>
           <header class="card-head">
             <div>
-              <h3 id="intensity-title">Money in and out of each fund</h3>
-              <p class="muted small" id="intensity-sub"></p>
-            </div>
-            <div class="segmented compact" role="radiogroup" aria-label="Measure" id="funds-metric">
-              <button type="button" role="radio" data-metric="usd">Dollars</button>
-              <button type="button" role="radio" data-metric="pct">% of fund</button>
+              <h3>Money map</h3>
+              <p class="muted small" id="map-sub"></p>
             </div>
           </header>
-          <div class="chart tall" id="chart-intensity"></div>
+          <div class="chart tall" id="chart-map"></div>
+          <div class="map-legend" id="map-legend" aria-hidden="true"></div>
           <div class="table-wrap"></div>
         </div>
 
@@ -142,7 +133,7 @@
         </div>
       </article>
 
-      <article class="card" data-card="history" id="history">
+      <article class="card" data-card="history" id="history" data-title="Flow history">
         <header class="card-head">
           <div>
             <h3 id="history-headline"></h3>
@@ -188,7 +179,7 @@
           <div class="table-wrap"></div>
         </div>
         <div class="panel" data-panel="heatmap" data-card="heatmap" role="tabpanel" hidden>
-          <p class="muted small">Return from peak to trough in every selloff, newest at top. Tap a row to replay it in the wheel.</p>
+          <p class="muted small">Return from peak to trough in every selloff, newest at top. Tap a row to see that selloff's flows.</p>
           <div class="chart" id="chart-heatmap"></div>
           <div class="table-wrap"></div>
         </div>
@@ -258,13 +249,13 @@
             sizes as a sample and directions as the signal. Stablecoins, by contrast, are counted in full, so over
             long ranges crypto looks large next to the other classes; compare each class with its own past. Markets without an SPDR fund (Nasdaq 100, small caps,
             bitcoin, the dollar, broad commodities) are tracked for price only.</p>
-          <h3>The liquidity wheel</h3>
-          <p>Each fund's flow is added up within its class, so rotation inside a class (from tech into utilities,
-            say) cancels out and only money crossing between classes remains. The <em>Sidelines</em> balance the
-            wheel: money that came into the tracked funds from outside (bank deposits, other funds) is shown leaving
-            the sidelines, and money that left them altogether is shown going to the sidelines. Between classes, each
-            net outflow is split across net inflows in proportion to size: a way to read the rotation, not a ledger
-            of who bought from whom.</p>
+          <h3>Classes and the money map</h3>
+          <p>Each fund's flow is added up within its class, so the Classes bars show how much money went into or
+            came out of stocks, bonds, cash, gold and crypto; tap a class to see the funds behind it. The line above
+            the bars is the net new money: what came into the tracked funds from outside (bank deposits, other
+            funds), or left them altogether. The page shows only what is measured, money in and money out of each
+            fund, not who sold to whom. The money map draws every fund as a tile sized by its assets and coloured by
+            its net flow as a share of the fund, so rotation between sectors stands out at a glance.</p>
           <h3>Flows vs returns, and how unusual a flow is</h3>
           <p>The quadrant chart puts each fund's return across and its net flow (as a share of the fund) up. Top right
             is money chasing strength, top left buying the dip, bottom right taking profits, bottom left capitulation.
@@ -294,7 +285,7 @@
           <h3>Cash buckets</h3>
           <ul>
             <li><strong>Stablecoins</strong>: dollars waiting on crypto rails. Rising supply is often new buying power for crypto.</li>
-            <li><strong>All money market funds</strong>: every US money fund, retail and institutional (OFR, monthly). The biggest pool of sidelined cash; its net flows are the change in assets minus the interest earned at the T-bill rate. The wheel shows them next to the sidelines for comparison.</li>
+            <li><strong>All money market funds</strong>: every US money fund, retail and institutional (OFR, monthly). The biggest pool of sidelined cash; its net flows are the change in assets minus the interest earned at the T-bill rate. The Classes view shows them next to the net new money for comparison.</li>
             <li><strong>Retail money funds</strong>: where households park cash. Jumps during selloffs show de-risking.</li>
             <li><strong>Overnight reverse repo</strong>: excess cash money funds lend to the Fed.</li>
             <li><strong>Treasury General Account</strong>: the government's cash at the Fed. A rising TGA drains liquidity from markets.</li>
@@ -310,9 +301,9 @@
             index (CPI). CPI is monthly and published with a lag of about a month, so short recent ranges barely
             change. Correlations, rates and the risk score are unaffected.</p>
           <h3>History and replay</h3>
-          <p>The history chart shows the same class-to-class flows week by week for three years, or month by
-            month since 2017. Click any bar, pick a past selloff from the wheel's menu, or click a row in the
-            selloff heatmap to replay that period in the wheel.</p>
+          <p>The history chart shows the same class flows day by day, week by week for three years, or month by
+            month since 2017. Tap any bar, pick a past selloff from the menu above the class bars, or tap a row in
+            the selloff heatmap to show that period in the Classes view.</p>
           <h3>Selloffs</h3>
           <p>A selloff is any fall of at least <span id="threshold-text">7%</span> in the S&amp;P 500 from a swing high,
             confirmed once it rebounds by the same amount. The one still in progress, if any, is marked as ongoing and
