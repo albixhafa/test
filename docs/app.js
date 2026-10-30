@@ -181,7 +181,7 @@ const INFO = {
   net_liquidity: "The Federal Reserve's balance sheet minus the Treasury's cash account and the reverse repo facility. A rough gauge of cash available to markets; when it rises, asset prices tend to get support.",
   rrp: "Money market funds lending spare cash to the Fed overnight. A big balance means idle cash; it drained toward zero as that cash moved into T-bills and markets.",
   tga: "The US government's checking account at the Fed. When it fills up, cash is pulled out of banks and markets; when it is spent down, cash flows back.",
-  flows: "Estimated from each day's price and trading volume, and measured against each market's own normal over the past year, so only unusual buying or selling counts. Not reported fund flows.",
+  flows: "Estimated from each day's price and trading volume, and measured against each market's own normal over the past year, so only unusual buying or selling counts. Flows are pressure, not price: a market can rise while money leaves it, if the remaining buyers pay up. Not reported fund flows.",
   cash: "Cash balances the wheel: if more was sold than bought across the tracked markets, the difference is shown flowing into cash, and if more was bought, it is shown coming out of cash.",
 };
 
@@ -569,6 +569,7 @@ function renderWheel(t) {
 
   $("#wheel-headline").textContent = wheelHeadline(view);
   $("#wheel-sub").textContent = `${fmtRange(view.start, view.end)}. Estimated from price and volume, not reported fund flows.`;
+  $("#wheel-sub").appendChild(infoButton("estimated flows", "flows"));
 
   // Side list: net per class, biggest inflow first.
   const maxAbs = d3.max(Object.values(wheel.net), Math.abs) || 1;
