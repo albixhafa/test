@@ -114,6 +114,26 @@ def test_flow_streaks_counts_inflow_weeks_and_acceleration():
     assert out["Stocks"]["inflow_weeks"] == 0
 
 
+def test_range_series_daily_and_monthly_rows():
+    days = pd.bdate_range("2024-01-01", "2024-03-29")
+    flow = pd.DataFrame({"SPY": 1e9}, index=days)
+    dv = pd.DataFrame({"SPY": 10e9}, index=days)
+    close = pd.DataFrame({"SPY": range(len(days))}, index=days, dtype="float64")
+    out = an.range_series(flow, dv, close, daily_days=5, monthly_from="2024-01-01")
+    assert out["daily"]["dates"][-1] == "2024-03-29" and len(out["daily"]["dates"]) == 5
+    assert out["daily"]["flow"]["SPY"] == [1.0] * 5
+    m = out["monthly"]
+    assert m["start"] == ["2024-01-01", "2024-02-01", "2024-03-01"]
+    assert m["end"] == ["2024-01-31", "2024-02-29", "2024-03-29"]
+    assert m["flow"]["SPY"] == [23.0, 21.0, 21.0]  # trading days per month, $1B each
+    assert m["close"]["SPY"][-1] == float(len(days) - 1)
+
+
+def test_pack_columns_rounds_and_nulls():
+    df = pd.DataFrame({"a": [1.23456789, float("nan")]})
+    assert an.pack_columns(df, 3) == {"a": [1.23, None]}
+
+
 def test_find_selloffs_zigzag():
     prices = [100, 105, 110, 100, 95, 99, 104, 103, 112, 120, 108, 104]
     s = pd.Series(prices, index=pd.bdate_range("2024-01-01", periods=len(prices)))
