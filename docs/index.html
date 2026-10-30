@@ -64,8 +64,7 @@
     <section id="flows" class="section">
       <div class="section-head">
         <div>
-          <h2>Where money is flowing</h2>
-          <p class="muted">Real money into and out of funds over the selected range. Tap any fund to see its price and flows.</p>
+          <h2 data-info="flows">Where money is flowing</h2>
         </div>
       </div>
       <article class="card tabbed" data-tabs="flows">
@@ -80,10 +79,7 @@
 
         <div class="panel" data-panel="classes" data-card="classes" data-title="Flows by class" role="tabpanel">
           <header class="card-head">
-            <div>
-              <h3 id="classes-headline"></h3>
-              <p class="muted small" id="classes-sub"></p>
-            </div>
+            <p class="classes-total" id="classes-total"></p>
             <div class="card-actions">
               <label class="visually-hidden" for="replay-select">Show a past period</label>
               <select id="replay-select" class="ghost small"></select>
@@ -94,33 +90,18 @@
             <button type="button" class="ghost small" id="replay-exit">Back to the range</button>
           </div>
           <div class="chart classes-view" id="chart-classes">
-            <p class="classes-total" id="classes-total"></p>
             <ul class="class-bars" id="class-bars"></ul>
-            <p class="muted small" id="classes-mmf"></p>
-            <p class="muted small">Bars to the right are money coming in, to the left money going out. Tap a class to see its funds, and a fund for its price and flows.</p>
           </div>
           <div class="table-wrap"></div>
         </div>
 
         <div class="panel" data-panel="map" data-card="map" role="tabpanel" hidden>
-          <header class="card-head">
-            <div>
-              <h3>Money map</h3>
-              <p class="muted small" id="map-sub"></p>
-            </div>
-          </header>
           <div class="chart tall" id="chart-map"></div>
           <div class="map-legend" id="map-legend" aria-hidden="true"></div>
           <div class="table-wrap"></div>
         </div>
 
         <div class="panel" data-panel="quadrant" data-card="quadrant" role="tabpanel" hidden>
-          <header class="card-head">
-            <div>
-              <h3>Flows vs returns</h3>
-              <p class="muted small" id="quadrant-sub"></p>
-            </div>
-          </header>
           <div class="chart tall" id="chart-quadrant"></div>
           <div class="table-wrap"></div>
         </div>
@@ -129,8 +110,7 @@
       <article class="card" data-card="history" id="history" data-title="Flow history">
         <header class="card-head">
           <div>
-            <h3 id="history-headline"></h3>
-            <p class="muted small" id="history-sub"></p>
+            <h3 data-info="history">Running total by class</h3>
           </div>
           <div class="card-actions">
             <div class="segmented compact" role="radiogroup" aria-label="History period" id="history-kind">
@@ -149,16 +129,11 @@
     <section id="pools" class="section">
       <div class="section-head">
         <div>
-          <h2>Where the money sits</h2>
-          <p class="muted" id="pools-lede">The market value of what is held in each asset class, month by month. Values rise and fall with prices: a dip means prices fell, not that money disappeared. Sizes are estimates from public data.</p>
+          <h2 data-info="pools">Where the money sits</h2>
         </div>
       </div>
       <article class="card" data-card="pools" data-title="Where the money sits">
         <header class="card-head">
-          <div>
-            <h3 id="pools-headline"></h3>
-            <p class="muted small" id="pools-sub"></p>
-          </div>
           <div class="card-actions">
             <div class="segmented compact" role="radiogroup" aria-label="Group by" id="pools-grain">
               <button type="button" role="radio" data-grain="month">Month</button>
@@ -181,8 +156,7 @@
     <section id="selloffs" class="section">
       <div class="section-head">
         <div>
-          <h2>When stocks sell off, where does money hide?</h2>
-          <p class="muted" id="selloff-stats"></p>
+          <h2 data-info="selloffs">When stocks sell off, where does money hide?</h2>
         </div>
       </div>
       <article class="card tabbed" data-tabs="selloffs">
@@ -193,14 +167,12 @@
           </div>
           <button type="button" class="ghost small table-toggle">Table</button>
         </div>
-        <p class="muted small tab-lede" id="selloff-sub"></p>
+        <p class="muted small tab-lede" id="selloff-sub" hidden></p>
         <div class="panel" data-panel="playbook" data-card="playbook" role="tabpanel">
-          <p class="muted small">Median return from S&amp;P 500 peak to trough. Tap a bar for the market's details.</p>
           <div class="chart tall" id="chart-playbook"></div>
           <div class="table-wrap"></div>
         </div>
         <div class="panel" data-panel="heatmap" data-card="heatmap" role="tabpanel" hidden>
-          <p class="muted small">Return from peak to trough in every selloff, newest at top. Tap a row to see that selloff's flows.</p>
           <div class="chart" id="chart-heatmap"></div>
           <div class="table-wrap"></div>
         </div>
@@ -210,8 +182,7 @@
     <section id="backdrop" class="section">
       <div class="section-head">
         <div>
-          <h2>Backdrop</h2>
-          <p class="muted">The cash waiting on the sidelines, the price of money, how traders are positioned and the mood. Tap a row for its chart.</p>
+          <h2 data-info="backdrop">Backdrop</h2>
         </div>
       </div>
       <article class="card tabbed" data-tabs="backdrop">
@@ -224,26 +195,22 @@
           </div>
         </div>
         <div class="panel" data-panel="cash" data-card="bd-cash" role="tabpanel">
-          <p class="muted small tab-lede">Money that leaves risk assets mostly parks here.</p>
           <div class="bd-table" id="bd-cash"></div>
           <h3 class="bd-detail-title" id="bd-cash-title"></h3>
           <div class="chart" id="chart-bd-cash"></div>
         </div>
         <div class="panel" data-panel="rates" data-card="bd-rates" role="tabpanel" hidden>
-          <p class="muted small tab-lede">What cash and borrowing cost, and how nervous lenders are.</p>
           <div class="bd-table" id="bd-rates"></div>
           <h3 class="bd-detail-title" id="bd-rates-title"></h3>
           <div class="chart" id="chart-bd-rates"></div>
         </div>
         <div class="panel" data-panel="positioning" data-card="bd-positioning" role="tabpanel" hidden>
-          <p class="muted small tab-lede" id="positioning-sub">Speculators' net futures position as a percentile of the last three years (CFTC, weekly). Near 0 or 100 is crowded and can unwind fast.</p>
           <div class="bd-table" id="bd-positioning"></div>
           <h3 class="bd-detail-title" id="positions-title"></h3>
-          <p class="muted small" id="positions-sub"></p>
+          <p class="muted small" id="positions-sub" hidden></p>
           <div class="chart" id="chart-positions"></div>
         </div>
         <div class="panel" data-panel="risk" data-card="bd-risk" role="tabpanel" hidden>
-          <p class="muted small tab-lede">Is the market reaching for risk or running from it, and which assets still move with stocks?</p>
           <div class="bd-table" id="bd-risk"></div>
           <h3 class="bd-detail-title" id="bd-risk-title"></h3>
           <div class="chart" id="chart-bd-risk"></div>
@@ -358,7 +325,6 @@
       <header class="card-head">
         <div>
           <h3 id="closeup-title">Market close-up</h3>
-          <p class="muted small">Price and flow for one market over the selected range.</p>
         </div>
         <div class="card-actions">
           <label class="visually-hidden" for="closeup-select">Choose a market</label>

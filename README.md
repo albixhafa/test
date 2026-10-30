@@ -17,11 +17,12 @@ Four sections, each one card (most with tabs), so the page stays short:
 |---|---|
 | **Where money is flowing** | Tabs: **Classes** (money in and out of stocks, bonds, cash, gold & commodities and crypto as bars, with net new money on top; tap a class to open its funds; can show any past week, month or selloff), **Map** (every fund as a tile sized by its assets and coloured by its flow as a share of the fund), **Vs returns** (chasing strength, buying the dip, taking profits, capitulation). Below it, the **running total** of each class's flows by day, week or month |
 | **Where the money sits** | Stacked bars of the market value held in stocks, real estate, bonds, cash, gold and crypto each month (or year) since 2017, with **Linear / Log / Share %** views, a tooltip that ranks the classes, and the period in progress striped. Sizes are estimates: Fed Financial Accounts for stocks (carried monthly by the S&P 500), households' real estate (carried by Case-Shiller) and corporate bonds, Dallas Fed Treasury market value, M2 plus companies' money funds for cash, World Gold Council tonnes times the gold price, coins in circulation times prices plus stablecoins for crypto |
-| **When stocks sell off** | How often and how deep selloffs are, then tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to see its flows by class) |
+| **When stocks sell off** | Tabs: **Playbook** (what rose while stocks fell, across every S&P 500 selloff of 7%+ since 2016) and **Every selloff** (each market in each selloff; tap one to see its flows by class) |
 | **Backdrop** | Tabs, each a compact table with sparklines and a chart of the selected row: **Cash** (stablecoins, money market funds and their estimated net flows, retail money funds, reverse repo, TGA, Fed net liquidity), **Rates** (T-bill, 10-year, 2s10s curve, real yield, high-yield spread, financial conditions), **Positioning** (speculators' futures positions in 11 markets as a percentile of three years), **Risk** (risk appetite score and its ingredients, correlations with stocks) |
 
 Tapping any fund opens its **close-up**: price and flows over the range, its last 8 weeks and its record in past selloffs.
-The guide at the bottom (folded by default) explains every number.
+Charts carry no captions: the ⓘ next to each section title explains how to read it (for selloffs, also how often
+and how deep they have been), and the guide at the bottom (folded by default) explains every number.
 
 Every chart has a **Table** toggle with the underlying numbers and a CSV download.
 
