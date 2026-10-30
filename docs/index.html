@@ -42,6 +42,9 @@
     <div class="range-bar" role="group" aria-label="Date range for every chart and table">
       <div class="segmented compact" id="range-presets" role="radiogroup" aria-label="Date range"></div>
       <button type="button" class="ghost small" id="range-custom-toggle" aria-expanded="false" aria-controls="custom-range">Custom</button>
+      <label class="real-toggle" title="Restate dollar amounts and prices in today's dollars using the US consumer price index">
+        <input type="checkbox" id="real-toggle"> Inflation-adjusted
+      </label>
       <span class="custom-range" id="custom-range" hidden>
         <label>From <input type="date" id="range-from"></label>
         <label>to <input type="date" id="range-to"></label>
@@ -230,7 +233,7 @@
       <div class="section-head">
         <div>
           <h2>Dry powder: where the cash sits</h2>
-          <p class="muted">Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&amp;P 500 selloffs.</p>
+          <p class="muted" id="cash-sub">Money that leaves risk assets mostly parks in cash-like places. Shaded bands are S&amp;P 500 selloffs.</p>
         </div>
       </div>
       <div class="grid multiples" id="cash-grid"></div>
@@ -260,7 +263,7 @@
           <header class="card-head">
             <div>
               <h3>One year of performance</h3>
-              <p class="muted small">One market per class, indexed to 100 at the start of the selected range.</p>
+              <p class="muted small" id="performance-sub">One market per class, indexed to 100 at the start of the selected range.</p>
             </div>
             <button type="button" class="ghost small table-toggle">Table</button>
           </header>
@@ -318,6 +321,11 @@
             changes shown on the headline tiles. Ranges inside the last three years use daily data; longer ones use
             monthly totals. The "Right now" summary and the outlook cards always describe the present and the full
             history, whatever range is selected.</p>
+          <h3>Inflation-adjusted view</h3>
+          <p>Tick <em>Inflation-adjusted</em> to restate every dollar amount in today's dollars and every price
+            change as a real return, using the US consumer price index (CPI). CPI is monthly and published with
+            a lag of about a month, so short recent ranges barely change. Correlations and the risk score are
+            unaffected, and the "Right now" summary and the outlook stay in plain dollars.</p>
           <h3>History and replay</h3>
           <p>The history chart shows the same class-to-class flows week by week for three years, or month by
             month since 2017. Click any bar, pick a past selloff from the wheel's menu, or click a row in the

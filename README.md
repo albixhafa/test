@@ -31,6 +31,9 @@ A **date range** bar under the menu (1W, 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, All, or cu
 every chart and table. The page aggregates the range itself from the daily rows (last three years)
 or monthly rows (since 2017) that the pipeline publishes in `series`.
 
+An **Inflation-adjusted** checkbox next to it restates dollar amounts in today's dollars and
+returns as real returns, using monthly CPI (`CPIAUCSL` from FRED).
+
 ## Important caveat: flows are estimated
 
 Every share sold has a buyer, so a selloff doesn't drain a fixed pot of money. What
