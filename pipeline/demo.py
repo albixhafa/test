@@ -146,6 +146,7 @@ def generate(start="2016-01-01", end=None, seed=7):
                                            (end, 330.0)], rng, 0.0005),
     }
     for sid, knots in {
+        "DTB3": [(start, 0.3), ("2018-12-01", 2.4), ("2020-04-01", 0.1), ("2022-01-01", 0.05), ("2023-08-01", 5.4), (end, 3.9)],
         "DGS10": [(start, 2.2), ("2020-08-01", 0.6), ("2022-10-20", 4.2), ("2023-10-19", 5.0), (end, 4.3)],
         "T10Y2Y": [(start, 1.2), ("2019-08-28", -0.05), ("2021-03-01", 1.5), ("2023-07-03", -1.05), (end, 0.5)],
         "DFII10": [(start, 0.7), ("2020-08-01", -1.1), ("2022-10-20", 1.7), ("2023-10-19", 2.5), (end, 1.9)],
@@ -155,6 +156,10 @@ def generate(start="2016-01-01", end=None, seed=7):
         first = pd.Timestamp(knots[0][0])
         index = pd.date_range(first, end, freq="W-FRI") if sid == "NFCI" else pd.bdate_range(first, end)
         macro[sid] = _smooth_path(index, knots, rng, 0.01)
+
+    month_ends = pd.date_range(start, end, freq="ME")
+    macro["MMF_TOTAL"] = _smooth_path(month_ends, [(start, 2750), ("2020-02-01", 3650), ("2020-05-01", 4800),
+                                                   ("2022-06-01", 4600), ("2024-06-01", 6300), (end, 8300)], rng, 0.01)
 
     stable_days = pd.date_range(start, end, freq="D")
     stable = _smooth_path(stable_days, [(start, 0.01), ("2017-12-01", 1.5), ("2019-12-01", 5.5),

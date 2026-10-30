@@ -423,6 +423,22 @@ def positioning_summary(frame, years=3):
     return out
 
 
+def mmf_flows(assets_bn, bill_yield_pct):
+    """Estimated monthly net flows into money market funds, in USD billions.
+
+    Fund assets grow from interest as well as new money, so each month's change is
+    reduced by the income the prior month's assets would have earned at that month's
+    average 3-month T-bill yield. What is left approximates net new money.
+    """
+    assets = assets_bn.dropna().sort_index()
+    if len(assets) < 2:
+        return pd.Series(dtype="float64")
+    monthly_yield = bill_yield_pct.dropna().resample("ME").mean().reindex(assets.index, method="ffill") if bill_yield_pct is not None else None
+    prev = assets.shift(1)
+    income = prev * (monthly_yield / 100 / 12) if monthly_yield is not None else 0.0
+    return (assets - prev - income).dropna()
+
+
 def net_liquidity(fed_assets, tga, rrp):
     """Fed balance sheet minus TGA minus reverse repo, all in USD billions, weekly."""
     if fed_assets is None or tga is None or rrp is None:
